@@ -7,7 +7,7 @@
  *  ★ 新しい版を GitHub に上げるときは、必ず下の VERSION を書き換えてください（例: 日付）。
  *    VERSION が変わらないと、ブラウザは「更新なし」と判断します。
  */
-const VERSION = '20260824g';                 // ← 公開のたびに変更する
+const VERSION = '20260824h';                 // ← 公開のたびに変更する
 const CACHE = 'pdfnote-' + VERSION;
 
 // キャッシュするファイル（SW自身の場所からの相対パス）

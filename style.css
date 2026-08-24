@@ -126,7 +126,9 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 /* ホーム上部の案内（自動保存のしくみ）— 「ホーム」の右に置く */
 .lib-hint{
   margin-left:14px; color:var(--muted); font-size:12.5px; line-height:1.5;
-  align-self:center; max-width:52ch;
+  align-self:center;
+  white-space:nowrap;                      /* 折り返さず必ず1行で表示 */
+  min-width:0; overflow:hidden; text-overflow:ellipsis;
 }
 .lib-hint b{color:var(--ink);}
 @media (max-width:900px){ .lib-hint{display:none;} }
@@ -198,10 +200,12 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
   padding:8px 12px; background:var(--panel); border-top:1px solid var(--line); overflow:hidden;
 }
 .pagelabel{font-size:15px; min-width:74px; text-align:center; color:var(--ink);}
-/* 上バーの操作ヒント（2本指でページ移動）— 「ページ一覧」の左に置く */
+/* 上バーの操作ヒント（2本指でページ移動）— 道具の右にある空きスペースの左端に置く */
 .swipe-hint{
-  color:var(--muted); font-size:12px; line-height:1.4; white-space:nowrap;
-  padding:4px 10px; border-radius:8px; background:var(--panel-2); border:1px solid var(--line);
+  margin-right:auto;                        /* 空きスペースの左端から表示 */
+  align-self:center;
+  color:var(--muted); font-size:14px; line-height:1.4; white-space:nowrap;
+  padding:6px 12px; border-radius:8px; background:var(--panel-2); border:1px solid var(--line);
 }
 .swipe-hint b{color:var(--ink);}
 @media (max-width:1100px){ .swipe-hint{display:none !important;} }
