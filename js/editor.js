@@ -117,6 +117,9 @@ PN.editor = (function () {
     $('#grp-color').hidden = !isPen;
     $('#grp-width').hidden = !isPen;
     $('#grp-mask').hidden = (t !== 'mask');
+    // 1本指が書き込みに使われる道具のときだけ、2本指スワイプの案内を出す
+    const hint = $('#ed-swipe-hint');
+    if (hint) hint.hidden = isViewTool();
     elScroller.classList.toggle('panning', t === 'pan');
     updateRouting();
   }
