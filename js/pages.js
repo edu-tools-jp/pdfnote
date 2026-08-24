@@ -10,7 +10,8 @@ PN.pages = (function () {
   const thumbCache = {};          // id -> dataURL
   let drag = null;                // ドラッグ状態
   let placeholder = null;         // 挿入位置を示す枠
-  const DRAG_THRESHOLD = 6;       // これ以上動いたらドラッグ（未満はタップ＝選択）
+  const LONG_PRESS_MS = 500;      // この時間押し続けると「移動モード」になる
+  const MOVE_CANCEL = 10;         // 長押し成立前にこれ以上動いたら、スクロール操作とみなす
 
   function init() {
     root = $('#screen-pages');
@@ -25,6 +26,7 @@ PN.pages = (function () {
     // ドラッグ（並べ替え）
     document.addEventListener('pointermove', onDragMove);
     document.addEventListener('pointerup', onDragEnd);
+    document.addEventListener('pointercancel', onDragCancel);
   }
 
   function open() {
@@ -37,7 +39,11 @@ PN.pages = (function () {
     // サムネを順次生成
     pages.forEach(p => ensureThumb(p));
   }
-  function close() { root.hidden = true; gridEl.innerHTML = ''; }
+  function close() {
+    if (drag) { clearTimeout(drag.timer); document.removeEventListener('touchmove', blockScroll, { passive: false }); drag = null; }
+    placeholder = null;
+    root.hidden = true; gridEl.innerHTML = '';
+  }
 
   function render() {
     gridEl.innerHTML = '';
@@ -135,16 +141,22 @@ PN.pages = (function () {
   /* ---- ドラッグ並べ替え（サムネイルをドラッグ、ページの間に落とすとそこへ挿入） ---- */
   function onPointerDown(e, id, card, selectable) {
     if (e.button != null && e.button !== 0) return;   // 左ボタンのみ
-    e.preventDefault();
+    // ここでは preventDefault しない（指でのスクロールを妨げないため）
     const r = card.getBoundingClientRect();
     drag = {
       id, card, selectable, pointerId: e.pointerId,
       startX: e.clientX, startY: e.clientY,
       offsetX: e.clientX - r.left, offsetY: e.clientY - r.top,
-      w: r.width, h: r.height, active: false
+      w: r.width, h: r.height, active: false, order0: order.join()
     };
+    // 押し続けたら「移動モード」に入る。途中で動かしたらスクロール扱いで取り消す
+    drag.timer = setTimeout(activateDrag, LONG_PRESS_MS);
   }
+  /* 長押し成立：カードを持ち上げて移動できる状態にする */
   function activateDrag() {
+    if (!drag) return;
+    // 一覧が作り直された等で、掴んだカードが今の一覧に無ければ何もしない
+    if (drag.card.parentNode !== gridEl) { drag = null; return; }
     drag.active = true;
     // 元の位置に「挿入枠（プレースホルダ）」を置き、カードは浮かせて指/マウスに追従
     placeholder = document.createElement('div');
@@ -156,12 +168,23 @@ PN.pages = (function () {
     drag.card.style.zIndex = '60';
     drag.card.style.width = drag.w + 'px';
     drag.card.style.pointerEvents = 'none';
+    drag.card.style.left = (drag.startX - drag.offsetX) + 'px';
+    drag.card.style.top = (drag.startY - drag.offsetY) + 'px';
+    // 移動中は画面スクロールを止める（長押し中はまだスクロールが始まっていないので有効）
+    document.addEventListener('touchmove', blockScroll, { passive: false });
+    try { drag.card.setPointerCapture(drag.pointerId); } catch (err) {}
+    if (navigator.vibrate) { try { navigator.vibrate(30); } catch (err) {} }
   }
+  function blockScroll(e) { if (drag && drag.active) e.preventDefault(); }
+
   function onDragMove(e) {
     if (!drag) return;
     if (!drag.active) {
-      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < DRAG_THRESHOLD) return;
-      activateDrag();
+      // 長押しが成立する前に動いた ＝ スクロールしたいだけ。並べ替えは開始しない
+      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > MOVE_CANCEL) {
+        clearTimeout(drag.timer); drag = null;
+      }
+      return;
     }
     drag.card.style.left = (e.clientX - drag.offsetX) + 'px';
     drag.card.style.top = (e.clientY - drag.offsetY) + 'px';
@@ -191,26 +214,42 @@ PN.pages = (function () {
     if (before) return best.dataset.id;      // このカードの手前に入れる
     return ids[idx + 1] || null;             // このカードの次（＝末尾なら null）
   }
-  async function onDragEnd(e) {
-    if (!drag) return;
-    const d = drag; drag = null;
-    if (!d.active) {                          // 動かなかった＝タップ：選択のトグル
-      if (d.selectable) toggleSelect(d.id);
-      return;
-    }
-    // 浮いていたカードを、プレースホルダの位置に戻す
-    d.card.classList.remove('dragging');
-    d.card.style.position = ''; d.card.style.zIndex = ''; d.card.style.left = '';
-    d.card.style.top = ''; d.card.style.width = ''; d.card.style.pointerEvents = '';
-    if (placeholder && placeholder.parentNode) {
-      gridEl.insertBefore(d.card, placeholder);
+  /* 浮いていたカードを、挿入枠の位置に戻して見た目を元に戻す */
+  function dropCardIntoPlace(card) {
+    card.classList.remove('dragging');
+    card.style.position = ''; card.style.zIndex = ''; card.style.left = '';
+    card.style.top = ''; card.style.width = ''; card.style.pointerEvents = '';
+    if (placeholder && placeholder.parentNode === gridEl) {
+      try { gridEl.insertBefore(card, placeholder); } catch (e) { /* 一覧が作り直された場合 */ }
       placeholder.remove();
     }
     placeholder = null;
-    // 新しい並びを DOM から取得して保存
+  }
+  function endDragCommon() {
+    clearTimeout(drag.timer);
+    document.removeEventListener('touchmove', blockScroll, { passive: false });
+    const d = drag; drag = null; return d;
+  }
+  async function onDragEnd(e) {
+    if (!drag) return;
+    const d = endDragCommon();
+    if (!d.active) {                          // 長押ししていない＝ふつうのタップ：選択のトグル
+      const moved = Math.hypot((e.clientX || 0) - d.startX, (e.clientY || 0) - d.startY);
+      if (d.selectable && moved <= MOVE_CANCEL) toggleSelect(d.id);
+      return;
+    }
+    dropCardIntoPlace(d.card);
+    // 新しい並びを DOM から取得。変わっていなければ保存しない
     order = [...gridEl.querySelectorAll('.pg-card')].filter(c => !c.classList.contains('pg-placeholder')).map(c => c.dataset.id);
+    if (order.join() === d.order0) { render(); return; }
     await PN.editor.reorderPages(order.slice());
     render();
+  }
+  /* ブラウザがジェスチャを引き取った等でキャンセルされたとき（選択はしない） */
+  function onDragCancel() {
+    if (!drag) return;
+    const d = endDragCommon();
+    if (d.active) { dropCardIntoPlace(d.card); render(); }
   }
 
   function cssEsc(s) { return String(s).replace(/["\\]/g, '\\$&'); }
