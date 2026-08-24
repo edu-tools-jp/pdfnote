@@ -49,16 +49,15 @@ PN.pages = (function () {
       card.className = 'pg-card' + (selected.has(id) ? ' selected' : '');
       card.dataset.id = id;
       card.innerHTML = `
-        <div class="pg-handle" title="ドラッグで並べ替え">⋮⋮</div>
         <div class="pg-check">${selected.has(id) ? '✓' : ''}</div>
-        <div class="pg-thumb">${thumbCache[id] ? `<img src="${thumbCache[id]}" alt="" draggable="false">` : '<span>…</span>'}</div>
+        <div class="pg-thumb" title="タップで選択 / ダブルクリックで開く / ドラッグで並べ替え">${thumbCache[id] ? `<img src="${thumbCache[id]}" alt="" draggable="false">` : '<span>…</span>'}</div>
         <div class="pg-num">${i + 1}</div>`;
-      // チェックは常に選択トグル、番号ダブルクリックでそのページを開く
+      // チェックは常に選択トグル
       card.querySelector('.pg-check').addEventListener('click', (e) => { e.stopPropagation(); toggleSelect(id); });
-      card.querySelector('.pg-num').addEventListener('dblclick', () => { close(); PN.editor.gotoPageId(id); });
-      // サムネ本体：軽くタップ＝選択、ドラッグ＝並べ替え。ハンドルも同じくドラッグ開始
-      card.querySelector('.pg-thumb').addEventListener('pointerdown', (e) => onPointerDown(e, id, card, true));
-      card.querySelector('.pg-handle').addEventListener('pointerdown', (e) => onPointerDown(e, id, card, false));
+      // サムネ本体：軽くタップ＝選択、ダブルクリック＝そのページを開く、ドラッグ＝並べ替え
+      const thumb = card.querySelector('.pg-thumb');
+      thumb.addEventListener('pointerdown', (e) => onPointerDown(e, id, card, true));
+      thumb.addEventListener('dblclick', () => { close(); PN.editor.gotoPageId(id); });
       gridEl.appendChild(card);
     });
     updateCount();
