@@ -118,8 +118,11 @@ PN.editor = (function () {
     $('#grp-width').hidden = !isPen;
     $('#grp-mask').hidden = (t !== 'mask');
     // 1本指が書き込みに使われる道具（ペン・直線・消す・かくす枠）のときだけ案内を出す
+    const showHint = ['pen', 'line', 'eraser', 'mask'].includes(t);
     const hint = $('#ed-swipe-hint');
-    if (hint) hint.hidden = !['pen', 'line', 'eraser', 'mask'].includes(t);
+    if (hint) hint.hidden = !showHint;
+    // 案内を出すあいだは、ボタン群を独立した行にして案内を左端に置く
+    ed.classList.toggle('has-hint', showHint);
     elScroller.classList.toggle('panning', t === 'pan');
     updateRouting();
   }
