@@ -1,0 +1,15 @@
+{
+  "name": "PDFノート — 授業用書き込みノート",
+  "short_name": "PDFノート",
+  "description": "配付プリントのPDF・画像を映してタッチペンで書き込める授業用ノート",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#1f2430",
+  "theme_color": "#1f2430",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
