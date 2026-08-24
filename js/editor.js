@@ -138,7 +138,7 @@ PN.editor = (function () {
     // 全画面状態はリセット（レイアウトのみ）
     immersive = false; paletteOpen = false; ed.classList.remove('immersive', 'palette-open'); elFab.hidden = true;
     $('#ed-title').textContent = nb.title;
-    setTool('pen');
+    setTool('pan');   // 開いた直後は「移動」（誤って線を引かないように）
     computeBase();
     if (nb.pages.length) {
       elNoPages.hidden = true; elScroller.style.display = '';
@@ -167,6 +167,7 @@ PN.editor = (function () {
   function showNoPages() { elNoPages.hidden = false; elScroller.style.display = 'none'; elPages.innerHTML = ''; pageViews = []; $('#ed-pagelabel').textContent = '- / -'; }
   async function flushSave() { if (dirty || viewDirty) await saveNow(); }
   async function close() {
+    stopGlide();
     await flushSave();
     if (immersive) { ed.classList.remove('immersive', 'palette-open'); if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); immersive = false; }
     imgUrls.forEach(u => URL.revokeObjectURL(u)); imgUrls = []; pdfCache = {}; imgCache = {};
@@ -385,6 +386,7 @@ PN.editor = (function () {
   let liveDrawnUpTo = 0;
   function onDown(e, pv) {
     if (!nb || suppressDraw) return;
+    stopGlide();                       // 描き始めたら慣性は止める
     if (gesture) return;                 // 既に1本で描画中：他の指（手のひら等）は無視
     if (tool === 'pan' && e.pointerType === 'touch') return;  // 指の移動は elPages 側で1本指スクロール
     pv.live.setPointerCapture(e.pointerId); liveDrawnUpTo = 0;
@@ -511,10 +513,10 @@ PN.editor = (function () {
   }
 
   /* ---------- ズーム ---------- */
-  function setZoom(z) { zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)); relayoutAll(); }
+  function setZoom(z) { stopGlide(); zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)); relayoutAll(); }
 
   /* ---------- ページ移動・現在ページ ---------- */
-  function goPage(i) { if (!nb || i < 0 || i >= nb.pages.length || !pageViews[i]) return; pageViews[i].el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  function goPage(i) { if (!nb || i < 0 || i >= nb.pages.length || !pageViews[i]) return; stopGlide(); pageViews[i].el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
   function onScroll() { if (scrollRAF) return; scrollRAF = requestAnimationFrame(() => { scrollRAF = null; renderVisible(); updateCurrent(); }); }
   function updateCurrent() {
     if (!pageViews.length) return;
@@ -579,6 +581,46 @@ PN.editor = (function () {
   function openPalette() { paletteOpen = true; ed.classList.add('palette-open'); elFab.hidden = true; updateRouting(); }
   function closePalette() { paletteOpen = false; ed.classList.remove('palette-open'); if (immersive) elFab.hidden = false; updateRouting(); }
 
+  /* ---------- 慣性スクロール（指を離したあとスッと滑って止まる） ---------- */
+  const FRICTION = 0.96;    // 1フレームごとの減速率（小さいほど早く止まる）
+  const MIN_V = 0.02;       // これ未満の速さになったら停止（px/ms）
+  const MAX_V = 3;          // 速すぎる勢いは頭打ちに（px/ms）
+  let glide = null;         // 慣性アニメーションのID
+
+  const nowMs = () => (window.performance && performance.now ? performance.now() : Date.now());
+  function stopGlide() { if (glide) { cancelAnimationFrame(glide); glide = null; } }
+  /* 速度の記録（指の動き px/ms を、直近の動きを重めにならして保持） */
+  function trackVelocity(g, dx, dy, t) {
+    const dt = t - g.lastT;
+    if (dt <= 0) return;
+    g.lastT = t;
+    const nvx = dx / dt, nvy = dy / dt;
+    g.vx = g.vx * 0.6 + nvx * 0.4;
+    g.vy = g.vy * 0.6 + nvy * 0.4;
+  }
+  function startGlide(vx, vy) {
+    stopGlide();
+    const clamp = (v) => Math.max(-MAX_V, Math.min(MAX_V, v));
+    vx = clamp(vx); vy = clamp(vy);
+    if (Math.abs(vx) < MIN_V && Math.abs(vy) < MIN_V) return;   // ほぼ止まっているなら何もしない
+    let last = nowMs();
+    const step = () => {
+      const t = nowMs();
+      const dt = Math.min(64, t - last); last = t;              // 64ms 上限（タブ復帰時の飛びを防ぐ）
+      const decay = Math.pow(FRICTION, dt / 16.67);
+      vx *= decay; vy *= decay;
+      const beforeL = elScroller.scrollLeft, beforeT = elScroller.scrollTop;
+      elScroller.scrollLeft -= vx * dt;
+      elScroller.scrollTop -= vy * dt;
+      // 端に着いたらその方向の勢いは打ち切る
+      if (Math.abs(elScroller.scrollLeft - beforeL) < 0.01) vx = 0;
+      if (Math.abs(elScroller.scrollTop - beforeT) < 0.01) vy = 0;
+      if (Math.abs(vx) < MIN_V && Math.abs(vy) < MIN_V) { glide = null; return; }
+      glide = requestAnimationFrame(step);
+    };
+    glide = requestAnimationFrame(step);
+  }
+
   /* ---------- 指の操作：1本指スクロール（ビュー道具）＋ 2本指スクロール/ピンチ ---------- */
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const isViewTool = () => (tool === 'pan' || tool === 'reveal');   // ペン系以外＝1本指でスクロール
@@ -591,9 +633,12 @@ PN.editor = (function () {
   }
   function onTouchDown(e) {
     if (e.pointerType !== 'touch') return;
+    stopGlide();                       // 動いている最中に触れたら、その場で止める
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ptrs.size >= 2) { one = null; if (!two) startTwo(); return; }
-    if (ptrs.size === 1 && isViewTool()) one = { id: e.pointerId, lastX: e.clientX, lastY: e.clientY, moved: 0 };
+    if (ptrs.size === 1 && isViewTool()) {
+      one = { id: e.pointerId, lastX: e.clientX, lastY: e.clientY, moved: 0, vx: 0, vy: 0, lastT: nowMs() };
+    }
   }
   function onTouchMove(e) {
     if (!ptrs.has(e.pointerId)) return;
@@ -602,6 +647,7 @@ PN.editor = (function () {
     if (one && e.pointerId === one.id) {
       const dx = e.clientX - one.lastX, dy = e.clientY - one.lastY;
       one.lastX = e.clientX; one.lastY = e.clientY; one.moved += Math.abs(dx) + Math.abs(dy);
+      trackVelocity(one, dx, dy, nowMs());
       elScroller.scrollLeft -= dx; elScroller.scrollTop -= dy;
     }
   }
@@ -609,22 +655,29 @@ PN.editor = (function () {
     const wasOne = one && e.pointerId === one.id;
     if (ptrs.has(e.pointerId)) ptrs.delete(e.pointerId);
     if (two && ptrs.size < 2) endTwo();
-    if (wasOne) { if (one.moved > 8) lastPinchEnd = Date.now(); one = null; }   // ドラッグ後の誤タップ（めくり）防止
+    if (wasOne) {
+      if (one.moved > 8) lastPinchEnd = Date.now();   // ドラッグ後の誤タップ（めくり）防止
+      // 指を離した勢いで滑らせる（動きが止まってから離した場合は滑らない）
+      if (nowMs() - one.lastT < 120) startGlide(one.vx, one.vy);
+      one = null;
+    }
     if (ptrs.size === 0) suppressDraw = false;
   }
   function startTwo() {
     if (!nb || !pageViews.length) return;
     suppressDraw = true; cancelGesture(); one = null;
     const [a, b] = [...ptrs.values()];
-    two = { startDist: dist(a, b) || 1, lastMid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, zooming: false, z0: zoom, zoomBaseDist: 1, lastScale: 1, fx: 0, fy: 0 };
+    two = { startDist: dist(a, b) || 1, lastMid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, zooming: false, z0: zoom, zoomBaseDist: 1, lastScale: 1, fx: 0, fy: 0, vx: 0, vy: 0, lastT: nowMs() };
   }
   function moveTwo() {
     const [a, b] = [...ptrs.values()];
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     const d = dist(a, b);
     // 2本指の中点移動 → なめらかにスクロール
-    elScroller.scrollLeft -= (mid.x - two.lastMid.x);
-    elScroller.scrollTop -= (mid.y - two.lastMid.y);
+    const mdx = mid.x - two.lastMid.x, mdy = mid.y - two.lastMid.y;
+    if (!two.zooming) trackVelocity(two, mdx, mdy, nowMs());   // 拡大中は勢いを記録しない
+    elScroller.scrollLeft -= mdx;
+    elScroller.scrollTop -= mdy;
     two.lastMid = mid;
     // 指の間隔が一定以上（26px）変わったらズーム作動。小さな動きでは反応しない
     if (!two.zooming && Math.abs(d - two.startDist) > 26) {
@@ -642,6 +695,8 @@ PN.editor = (function () {
   }
   function endTwo() {
     const t = two; two = null; lastPinchEnd = Date.now();
+    // 拡大していない（＝2本指スクロールだった）なら、離した勢いで滑らせる
+    if (!t.zooming && nowMs() - t.lastT < 120) startGlide(t.vx, t.vy);
     if (t.zooming) {
       elPages.style.transform = ''; elPages.style.transformOrigin = '';
       zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, t.z0 * t.lastScale));
