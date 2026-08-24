@@ -219,13 +219,20 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 .pg-card.dragging{opacity:.85; box-shadow:0 10px 30px #000b; cursor:grabbing;}
 .pg-thumb{
   width:100%; aspect-ratio:3/4; background:#fff center/contain no-repeat; border:1px solid var(--line);
-  border-radius:4px; overflow:hidden; display:flex; align-items:center; justify-content:center; cursor:pointer;
+  border-radius:4px; overflow:hidden; display:flex; align-items:center; justify-content:center;
+  cursor:grab; touch-action:none;
 }
-.pg-thumb img{width:100%; height:100%; object-fit:contain; display:block; background:#fff;}
+.pg-card.dragging .pg-thumb, .pg-handle:active{cursor:grabbing;}
+.pg-thumb img{width:100%; height:100%; object-fit:contain; display:block; background:#fff; pointer-events:none; -webkit-user-drag:none;}
+/* 挿入位置を示す枠（ドラッグ中にページの間に開く） */
+.pg-placeholder{
+  border:2px dashed var(--accent) !important; background:rgba(61,139,253,.12) !important;
+  box-shadow:none !important;
+}
 .pg-thumb span{color:var(--muted); font-size:20px;}
 .pg-num{font-size:14px; color:var(--ink); font-weight:700;}
 .pg-handle{
-  position:absolute; top:6px; left:6px; z-index:2; width:30px; height:30px; border-radius:6px;
+  position:absolute; top:6px; left:6px; z-index:3; width:30px; height:30px; border-radius:6px;
   background:#000a; color:#fff; display:flex; align-items:center; justify-content:center;
   font-size:14px; cursor:grab; touch-action:none; letter-spacing:-2px;
 }

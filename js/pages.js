@@ -8,7 +8,9 @@ PN.pages = (function () {
   let order = [];                 // 表示順のページID配列
   const selected = new Set();     // 選択中のページID
   const thumbCache = {};          // id -> dataURL
-  let drag = null;
+  let drag = null;                // ドラッグ状態
+  let placeholder = null;         // 挿入位置を示す枠
+  const DRAG_THRESHOLD = 6;       // これ以上動いたらドラッグ（未満はタップ＝選択）
 
   function init() {
     root = $('#screen-pages');
@@ -49,15 +51,14 @@ PN.pages = (function () {
       card.innerHTML = `
         <div class="pg-handle" title="ドラッグで並べ替え">⋮⋮</div>
         <div class="pg-check">${selected.has(id) ? '✓' : ''}</div>
-        <div class="pg-thumb">${thumbCache[id] ? `<img src="${thumbCache[id]}" alt="">` : '<span>…</span>'}</div>
+        <div class="pg-thumb">${thumbCache[id] ? `<img src="${thumbCache[id]}" alt="" draggable="false">` : '<span>…</span>'}</div>
         <div class="pg-num">${i + 1}</div>`;
-      // サムネ本体タップ＝選択トグル
-      card.querySelector('.pg-thumb').addEventListener('click', () => toggleSelect(id));
-      card.querySelector('.pg-check').addEventListener('click', () => toggleSelect(id));
+      // チェックは常に選択トグル、番号ダブルクリックでそのページを開く
+      card.querySelector('.pg-check').addEventListener('click', (e) => { e.stopPropagation(); toggleSelect(id); });
       card.querySelector('.pg-num').addEventListener('dblclick', () => { close(); PN.editor.gotoPageId(id); });
-      // 並べ替えハンドル
-      const handle = card.querySelector('.pg-handle');
-      handle.addEventListener('pointerdown', (e) => onDragStart(e, id, card));
+      // サムネ本体：軽くタップ＝選択、ドラッグ＝並べ替え。ハンドルも同じくドラッグ開始
+      card.querySelector('.pg-thumb').addEventListener('pointerdown', (e) => onPointerDown(e, id, card, true));
+      card.querySelector('.pg-handle').addEventListener('pointerdown', (e) => onPointerDown(e, id, card, false));
       gridEl.appendChild(card);
     });
     updateCount();
@@ -132,61 +133,85 @@ PN.pages = (function () {
     } catch (e) { /* 生成失敗は…のまま */ }
   }
 
-  /* ---- ドラッグ並べ替え ---- */
-  function onDragStart(e, id, card) {
+  /* ---- ドラッグ並べ替え（サムネイルをドラッグ、ページの間に落とすとそこへ挿入） ---- */
+  function onPointerDown(e, id, card, selectable) {
+    if (e.button != null && e.button !== 0) return;   // 左ボタンのみ
     e.preventDefault();
-    const rect = card.getBoundingClientRect();
-    drag = { id, card, offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top, moved: false, w: rect.width, h: rect.height };
-    try { card.setPointerCapture(e.pointerId); } catch (err) {}
+    const r = card.getBoundingClientRect();
+    drag = {
+      id, card, selectable, pointerId: e.pointerId,
+      startX: e.clientX, startY: e.clientY,
+      offsetX: e.clientX - r.left, offsetY: e.clientY - r.top,
+      w: r.width, h: r.height, active: false
+    };
   }
-  function onDragMove(e) {
-    if (!drag) return;
-    drag.moved = true;
+  function activateDrag() {
+    drag.active = true;
+    // 元の位置に「挿入枠（プレースホルダ）」を置き、カードは浮かせて指/マウスに追従
+    placeholder = document.createElement('div');
+    placeholder.className = 'pg-card pg-placeholder';
+    placeholder.style.width = drag.w + 'px'; placeholder.style.height = drag.h + 'px';
+    gridEl.insertBefore(placeholder, drag.card);
     drag.card.classList.add('dragging');
     drag.card.style.position = 'fixed';
     drag.card.style.zIndex = '60';
     drag.card.style.width = drag.w + 'px';
+    drag.card.style.pointerEvents = 'none';
+  }
+  function onDragMove(e) {
+    if (!drag) return;
+    if (!drag.active) {
+      if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < DRAG_THRESHOLD) return;
+      activateDrag();
+    }
     drag.card.style.left = (e.clientX - drag.offsetX) + 'px';
     drag.card.style.top = (e.clientY - drag.offsetY) + 'px';
-    drag.card.style.pointerEvents = 'none';
-    // 挿入位置を計算：ポインタ直下の他カードの中心と比較
-    const cards = [...gridEl.querySelectorAll('.pg-card')].filter(c => c !== drag.card);
-    let insertBefore = null;
+    // 挿入位置（この直前に入れるカード。null なら末尾）を求めてプレースホルダを移動
+    const beforeId = computeInsertBefore(e);
+    const beforeCard = beforeId ? gridEl.querySelector('.pg-card[data-id="' + cssEsc(beforeId) + '"]') : null;
+    if (beforeCard) gridEl.insertBefore(placeholder, beforeCard);
+    else gridEl.appendChild(placeholder);
+  }
+  /* いちばん近いカードを探し、その左半分/上半分ならその手前、右半分/下半分なら次の位置に挿入 */
+  function computeInsertBefore(e) {
+    const cards = [...gridEl.querySelectorAll('.pg-card')].filter(c => c !== drag.card && c !== placeholder);
+    if (!cards.length) return null;
+    let best = null, bestD = Infinity, before = true;
     for (const c of cards) {
       const r = c.getBoundingClientRect();
-      if (e.clientY < r.top + r.height / 2 || (Math.abs(e.clientY - (r.top + r.height / 2)) < r.height / 2 && e.clientX < r.left + r.width / 2)) {
-        insertBefore = c; break;
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const d = Math.hypot(e.clientX - cx, e.clientY - cy);
+      if (d < bestD) {
+        bestD = d; best = c;
+        before = (Math.abs(e.clientY - cy) < r.height * 0.6) ? (e.clientX < cx) : (e.clientY < cy);
       }
     }
-    // プレースホルダ表現：orderを暫定更新して並びを反映
-    const targetId = insertBefore ? insertBefore.dataset.id : null;
-    reflow(drag.id, targetId);
-  }
-  function reflow(dragId, beforeId) {
-    const cur = order.filter(id => id !== dragId);
-    if (beforeId == null) cur.push(dragId);
-    else { const i = cur.indexOf(beforeId); cur.splice(i < 0 ? cur.length : i, 0, dragId); }
-    if (cur.join() === order.join()) return;
-    order = cur;
-    // DOMの並びだけ更新（dragカードは fixed のまま、番号振り直し）
-    const byId = {};
-    gridEl.querySelectorAll('.pg-card').forEach(c => { byId[c.dataset.id] = c; });
-    order.forEach((id, i) => {
-      const c = byId[id]; if (!c) return;
-      gridEl.appendChild(c);
-      const num = c.querySelector('.pg-num'); if (num) num.textContent = i + 1;
-    });
+    if (!best) return null;
+    const ids = order.filter(id => id !== drag.id);
+    const idx = ids.indexOf(best.dataset.id);
+    if (before) return best.dataset.id;      // このカードの手前に入れる
+    return ids[idx + 1] || null;             // このカードの次（＝末尾なら null）
   }
   async function onDragEnd(e) {
     if (!drag) return;
     const d = drag; drag = null;
+    if (!d.active) {                          // 動かなかった＝タップ：選択のトグル
+      if (d.selectable) toggleSelect(d.id);
+      return;
+    }
+    // 浮いていたカードを、プレースホルダの位置に戻す
     d.card.classList.remove('dragging');
     d.card.style.position = ''; d.card.style.zIndex = ''; d.card.style.left = '';
     d.card.style.top = ''; d.card.style.width = ''; d.card.style.pointerEvents = '';
-    if (d.moved) {
-      await PN.editor.reorderPages(order.slice());   // 保存＆本体に反映
-      render();
+    if (placeholder && placeholder.parentNode) {
+      gridEl.insertBefore(d.card, placeholder);
+      placeholder.remove();
     }
+    placeholder = null;
+    // 新しい並びを DOM から取得して保存
+    order = [...gridEl.querySelectorAll('.pg-card')].filter(c => !c.classList.contains('pg-placeholder')).map(c => c.dataset.id);
+    await PN.editor.reorderPages(order.slice());
+    render();
   }
 
   function cssEsc(s) { return String(s).replace(/["\\]/g, '\\$&'); }
