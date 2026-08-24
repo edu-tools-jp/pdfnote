@@ -229,8 +229,10 @@ PN.storage = (function () {
     return readJSON(dir, 'notebook.json');
   }
 
-  async function saveNotebook(nb) {
-    nb.updatedAt = now();
+  /* opts.touch === false のときは更新日時を変えない
+     （「最後に開いていたページ」だけの保存で、一覧の並び順が動かないように） */
+  async function saveNotebook(nb, opts) {
+    if (!opts || opts.touch !== false) nb.updatedAt = now();
     await writeJSON(await getDir(['notebooks', nb.id], true), 'notebook.json', nb);
     const e = entryOf(nb.id);
     if (e) {

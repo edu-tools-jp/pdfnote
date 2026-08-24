@@ -34,6 +34,7 @@ PN.editor = (function () {
 
   let undoStack = [], redoStack = [];   // {idx, before}
   let dirty = false, structureDirty = false, saveTimer = null;
+  let viewDirty = false;   // 「最後に開いていたページ」だけが変わった状態（軽い保存対象）
 
   let pdfCache = {}, imgCache = {}, imgUrls = [];
   let pageViews = [];     // {idx, el, bg, ink, live, mask, *ctx, baseW, baseH, scale, cssW, cssH, rendered, renderToken}
@@ -132,19 +133,39 @@ PN.editor = (function () {
   /* ---------- ノートを開く / 閉じる ---------- */
   async function open(notebook) {
     nb = notebook; currentIdx = 0; zoom = 1;
-    undoStack = []; redoStack = []; dirty = false; structureDirty = false;
+    undoStack = []; redoStack = []; dirty = false; structureDirty = false; viewDirty = false;
     pdfCache = {}; imgCache = {}; imgUrls.forEach(u => URL.revokeObjectURL(u)); imgUrls = [];
     // 全画面状態はリセット（レイアウトのみ）
     immersive = false; paletteOpen = false; ed.classList.remove('immersive', 'palette-open'); elFab.hidden = true;
     $('#ed-title').textContent = nb.title;
     setTool('pen');
     computeBase();
-    if (nb.pages.length) { elNoPages.hidden = true; elScroller.style.display = ''; buildPages(); renderVisible(); updateCurrent(); }
+    if (nb.pages.length) {
+      elNoPages.hidden = true; elScroller.style.display = '';
+      buildPages();
+      const restored = restoreLastPage();   // 前回開いていたページの位置から表示する
+      renderVisible();
+      // 復元したときは、その位置で確定（スクロール反映待ちで1ページ目に戻らないように）
+      if (restored) refreshPageUI(); else updateCurrent();
+    }
     else showNoPages();
     setSaveState('saved');
   }
+
+  /* 前回このノートで開いていたページ（nb.lastPageId）へスクロールする。
+     ページIDで覚えているので、並べ替えや削除をしても正しいページに戻る。 */
+  function restoreLastPage() {
+    const id = nb.lastPageId;
+    if (!id) return false;
+    const i = nb.pages.findIndex(p => p.id === id);
+    if (i <= 0) return false;      // 見つからない／1ページ目ならそのまま
+    const pv = pageViews[i]; if (!pv) return false;
+    currentIdx = i;
+    if (pv.el.scrollIntoView) pv.el.scrollIntoView({ block: 'start' });
+    return true;
+  }
   function showNoPages() { elNoPages.hidden = false; elScroller.style.display = 'none'; elPages.innerHTML = ''; pageViews = []; $('#ed-pagelabel').textContent = '- / -'; }
-  async function flushSave() { if (dirty) await saveNow(); }
+  async function flushSave() { if (dirty || viewDirty) await saveNow(); }
   async function close() {
     await flushSave();
     if (immersive) { ed.classList.remove('immersive', 'palette-open'); if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); immersive = false; }
@@ -205,7 +226,12 @@ PN.editor = (function () {
   function relayoutAll() {
     if (!pageViews.length) return;
     computeBase();
-    pageViews.forEach(pv => { layoutPV(pv); pv.rendered = false; });
+    pageViews.forEach(pv => {
+      layoutPV(pv); pv.rendered = false;
+      // 書き込み（線・かくす枠）はここで同期的に描き直す。
+      // 背景の再描画（非同期）を待つと、その間だけ線が消えてしまうため。
+      if (!pv.freed) { renderInk(pv); renderMasks(pv); }
+    });
     renderVisible(); updateCurrent();
   }
 
@@ -250,12 +276,22 @@ PN.editor = (function () {
         const ideal = pv.scale * dprv();
         const safeScale = Math.max(0.05, Math.min(ideal, MAX_DIM / pv.baseW, MAX_DIM / pv.baseH));
         const vp = page.getViewport({ scale: safeScale });
-        pv.bg.width = Math.round(vp.width); pv.bg.height = Math.round(vp.height);
-        pv.bg.style.width = pv.cssW + 'px'; pv.bg.style.height = pv.cssH + 'px';
-        const task = page.render({ canvasContext: pv.bgctx, viewport: vp });
+        // ★ いったんオフスクリーンに描いてから差し替える。
+        //   表示中のキャンバスを先に消してしまうと、描き終わるまで白く見えてしまうため。
+        const off = document.createElement('canvas');
+        off.width = Math.round(vp.width); off.height = Math.round(vp.height);
+        const offctx = off.getContext('2d');
+        offctx.fillStyle = '#fff'; offctx.fillRect(0, 0, off.width, off.height);
+        const task = page.render({ canvasContext: offctx, viewport: vp });
         pv.renderTask = task;
         await task.promise;
         pv.renderTask = null;
+        if (token !== pv.renderToken) return;
+        // ここから下は同期処理なので、途中の空白状態が画面に出ない
+        pv.bg.width = off.width; pv.bg.height = off.height;
+        pv.bg.style.width = pv.cssW + 'px'; pv.bg.style.height = pv.cssH + 'px';
+        pv.bgctx.setTransform(1, 0, 0, 1, 0, 0);
+        pv.bgctx.drawImage(off, 0, 0);
         ok = true;
       } else {
         const img = await getImage(p.asset); if (token !== pv.renderToken) return;
@@ -486,6 +522,15 @@ PN.editor = (function () {
     let best = 0, bestD = Infinity;
     pageViews.forEach(pv => { const r = pv.el.getBoundingClientRect(); const d = Math.abs((r.top + r.height / 2) - cy); if (d < bestD) { bestD = d; best = pv.idx; } });
     currentIdx = best;
+    refreshPageUI();
+  }
+
+  /* ページ番号の表示と前後ボタンの状態、そして「最後に開いていたページ」の記録 */
+  function refreshPageUI() {
+    if (!nb || !nb.pages.length) return;
+    // 次に開いたときのために覚えておく（保存は次の保存時にまとめて）
+    const curId = nb.pages[currentIdx] && nb.pages[currentIdx].id;
+    if (curId && nb.lastPageId !== curId) { nb.lastPageId = curId; viewDirty = true; }
     $('#ed-pagelabel').textContent = (currentIdx + 1) + ' / ' + nb.pages.length;
     $('#ed-prev').disabled = currentIdx <= 0; $('#ed-next').disabled = currentIdx >= nb.pages.length - 1;
   }
@@ -495,10 +540,11 @@ PN.editor = (function () {
   function setSaveState(s) { $('#ed-save-state').textContent = s === 'saving' ? '保存中…' : s === 'saved' ? '保存済み ✓' : ''; }
   async function saveNow() {
     if (!nb) return; clearTimeout(saveTimer);
+    const viewOnly = !dirty && viewDirty;   // 中身は変わらず、見ていたページだけ変わった
     try {
-      await PN.storage.saveNotebook(nb);
+      await PN.storage.saveNotebook(nb, { touch: !viewOnly });
       if (structureDirty) { structureDirty = false; await regenThumb(); }
-      dirty = false; setSaveState('saved');
+      dirty = false; viewDirty = false; setSaveState('saved');
     } catch (e) { console.error('保存エラー', e); setSaveState(''); PN.ui.toast('保存に失敗しました。フォルダの権限を確認してください'); }
   }
 
