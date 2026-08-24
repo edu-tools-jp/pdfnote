@@ -62,6 +62,15 @@
     <p>まだノートがありません。</p>
     <button class="big-btn primary" onclick="document.getElementById('lib-new').click()">＋ 最初のノートをつくる</button>
   </div>
+
+  <footer class="lib-hint">
+    <span class="lib-hint-icon">💾</span>
+    <span>
+      <b>保存先のフォルダは、最初に一度選ぶだけです。</b>
+      そのあとの書き込み・取り込んだPDFは、<b>すべて自動で保存</b>されます（保存ボタンは不要）。
+      次に開いたときは「前回のフォルダを使う」→「編集を許可」でそのまま続きから使えます。
+    </span>
+  </footer>
 </section>
 
 <!-- ============ エディタ（ページ表示・書き込み） ============ -->
@@ -118,7 +127,7 @@
       <button id="ed-add-page" class="bar-btn ghost" title="PDF・画像を追加">＋ページ</button>
       <button id="ed-page-menu" class="bar-btn ghost" title="ページの操作">⋯</button>
       <span id="ed-save-state" class="save-state"></span>
-      <span class="build-stamp" title="アプリのバージョン">20260824e</span>
+      <span class="build-stamp" title="アプリのバージョン">20260824f</span>
     </div>
   </header>
 
@@ -139,6 +148,10 @@
     <button id="ed-prev" class="bar-btn">◀ 前</button>
     <span id="ed-pagelabel" class="pagelabel">- / -</span>
     <button id="ed-next" class="bar-btn">次 ▶</button>
+    <span class="foot-hint">
+      ✋「移動」👆「めくり」のときは<b>1本指</b>でスクロールできます。
+      それ以外（ペン・直線・消す・かくす枠）のときは、<b>2本指で上下にスワイプ</b>するとページを移動できます。
+    </span>
   </footer>
 </section>
 
