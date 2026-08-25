@@ -538,7 +538,7 @@ PN.editor = (function () {
         <div class="cam-wrap"><video id="cam-video" autoplay playsinline muted></video></div>
         <div class="modal-foot">
           <button class="bar-btn ghost" data-act="cancel">やめる</button>
-          <button class="bar-btn primary" data-act="shot">📷 撮影する</button>
+          <button class="bar-btn primary" data-act="shot">${PN.ui.icon('camera')}撮影する</button>
         </div>
       </div>`;
     document.getElementById('modal-root').appendChild(back);
@@ -562,8 +562,8 @@ PN.editor = (function () {
   /* 「画像」ボタンのメニュー */
   function imageMenu(anchor) {
     PN.ui.menu(anchor, [
-      { label: '🖼 写真を選ぶ', onClick: () => PN.app.pickImageForPage() },
-      { label: '📷 カメラで撮る', onClick: captureFromCamera }
+      { icon: 'image', label: '写真を選ぶ', onClick: () => PN.app.pickImageForPage() },
+      { icon: 'camera', label: 'カメラで撮る', onClick: captureFromCamera }
     ]);
   }
 
@@ -751,7 +751,7 @@ PN.editor = (function () {
       el.appendChild(body);
 
       if (editing) {
-        const mv = document.createElement('button'); mv.className = 'tb-move'; mv.textContent = '✥'; mv.title = 'ドラッグで移動';
+        const mv = document.createElement('button'); mv.className = 'tb-move'; mv.innerHTML = PN.ui.icon('move'); mv.title = 'ドラッグで移動';
         const del = document.createElement('button'); del.className = 'tb-del'; del.textContent = '×'; del.title = '削除';
         const rs = document.createElement('button'); rs.className = 'tb-resize'; rs.title = 'ドラッグで大きさ変更';
         el.append(mv, del, rs);
@@ -1344,7 +1344,12 @@ PN.editor = (function () {
 
   /* ---------- 保存 ---------- */
   function markDirty() { dirty = true; setSaveState('saving'); clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 700); }
-  function setSaveState(s) { $('#ed-save-state').textContent = s === 'saving' ? '保存中…' : s === 'saved' ? '保存済み ✓' : ''; }
+  function setSaveState(s) {
+    const el = $('#ed-save-state');
+    if (s === 'saving') el.textContent = '保存中…';
+    else if (s === 'saved') el.innerHTML = PN.ui.icon('check') + '保存済み';
+    else el.textContent = '';
+  }
   async function saveNow() {
     if (!nb) return; clearTimeout(saveTimer);
     const viewOnly = !dirty && viewDirty;   // 中身は変わらず、見ていたページだけ変わった
@@ -1381,7 +1386,7 @@ PN.editor = (function () {
     const el = document.documentElement; const p = el.requestFullscreen && el.requestFullscreen(); if (p && p.catch) p.catch(() => {});
     updateRouting();
     setTimeout(relayoutAll, 80);
-    PN.ui.toast('全画面：そのままペンで書けます。2本指でスクロール／ピンチ拡大、「☰」でメニュー');
+    PN.ui.toast('全画面：そのままペンで書けます。2本指でスクロール／ピンチ拡大、右下の「メニュー」で操作パネル');
   }
   function exitImmersive() {
     immersive = false; paletteOpen = false;
@@ -1573,8 +1578,8 @@ PN.editor = (function () {
   function pageMenu(anchor) {
     if (!nb || !nb.pages.length) return;
     PN.ui.menu(anchor, [
-      { label: '▲ 今のページを前へ', onClick: () => movePage(-1) },
-      { label: '▼ 今のページを後ろへ', onClick: () => movePage(1) },
+      { icon: 'arrow-up', label: '今のページを前へ', onClick: () => movePage(-1) },
+      { icon: 'arrow-down', label: '今のページを後ろへ', onClick: () => movePage(1) },
       { label: '今のページの書き込みを全消去', onClick: clearPageInk },
       { label: '今のページを削除', danger: true, onClick: deletePage }
     ]);

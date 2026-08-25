@@ -130,7 +130,11 @@ PN.app = (function () {
   function markUpdateReady(worker) {
     waitingWorker = worker;
     const upd = $('#btn-update');
-    if (upd) { upd.hidden = false; upd.classList.add('has-update'); upd.textContent = '🔄 更新（新版あり）'; }
+    if (upd) {
+      upd.hidden = false; upd.classList.add('has-update');
+      const lbl = upd.querySelector('.lbl'); if (lbl) lbl.textContent = '更新（新版あり）';
+      upd.title = '新しい版があります。押すと最新版になります';
+    }
   }
   async function checkForUpdate() {
     if (!swReg) { PN.ui.toast('この開き方では更新機能は使えません（GitHub Pages のURLで開いてください）'); return; }

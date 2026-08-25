@@ -126,6 +126,11 @@ PN.ui = (function () {
   }
 
   /* 小さなポップアップメニュー。items:[{label, danger, onClick}] */
+  /* index.html のスプライトからアイコンを取り出す（HTML文字列を返す） */
+  function icon(name, cls) {
+    return '<svg class="ic' + (cls ? ' ' + cls : '') + '" aria-hidden="true"><use href="#i-' + name + '"/></svg>';
+  }
+
   function menu(anchorEl, items) {
     const back = document.createElement('div');
     back.className = 'modal-back';
@@ -149,7 +154,8 @@ PN.ui = (function () {
       b.style.textAlign = 'left';
       b.style.justifyContent = 'flex-start';
       if (it.danger) b.style.color = 'var(--danger)';
-      b.textContent = it.label;
+      if (it.icon) { b.innerHTML = icon(it.icon); b.appendChild(document.createTextNode(it.label)); }
+      else b.textContent = it.label;
       b.addEventListener('click', () => { back.remove(); it.onClick(); });
       box.appendChild(b);
     });
@@ -178,5 +184,5 @@ PN.ui = (function () {
   }
   const escapeAttr = escapeHTML;
 
-  return { toast, busy, confirm, form, choose, menu, escapeHTML };
+  return { toast, busy, confirm, form, choose, menu, escapeHTML, icon };
 })();

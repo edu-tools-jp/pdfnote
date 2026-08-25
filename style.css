@@ -57,6 +57,29 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
   stroke-linecap:round; stroke-linejoin:round;
 }
 .bar-btn .ic{width:20px; height:20px;}
+.big-btn .ic{width:22px; height:22px;}
+.big-btn{display:inline-flex; align-items:center; justify-content:center; gap:9px;}
+
+/* パンくず（ホーム ＞ フォルダ …） */
+.path-link, .path-current{display:inline-flex; align-items:center; gap:6px;}
+.path-link .ic, .path-current .ic{width:17px; height:17px;}
+
+/* ノート／フォルダのカード */
+.card-thumb .ic{width:42px; height:42px; stroke-width:1.4; color:var(--muted);}
+.folder-card .folder-thumb .ic{width:62px; height:62px; color:#9bb3ff;}
+.card-meta{display:flex; align-items:center; gap:5px;}
+.card-meta .ic{width:14px; height:14px; flex:none;}
+
+/* ページ一覧の選択チェック */
+.pg-check .ic{width:17px; height:17px; stroke-width:2.6;}
+
+/* 全画面中の「メニュー」ボタン */
+.imm-fab{display:inline-flex; align-items:center; gap:8px;}
+.imm-fab .ic{width:20px; height:20px;}
+
+/* テキストボックスの移動つまみ */
+.textbox.editing .tb-move{display:flex; align-items:center; justify-content:center;}
+.textbox .tb-move .ic{width:15px; height:15px;}
 .ic-mask{color:var(--danger);}
 .tool-btn.active .ic-mask{color:#fff;}
 
@@ -186,7 +209,9 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 .width-btn .dot{background:currentColor; border-radius:50%;}
 .width-btn.active{background:var(--accent); border-color:var(--accent);}
 
-.save-state{font-size:13px; color:var(--muted); min-width:64px; text-align:right;}
+.save-state{display:inline-flex; align-items:center; justify-content:flex-end; gap:5px;
+  font-size:13px; color:var(--muted); min-width:64px; white-space:nowrap;}
+.save-state .ic{width:15px; height:15px; stroke-width:2.4; color:var(--ok);}
 
 /* ---- ステージ（ページ表示領域） ---- */
 .ed-stage{position:relative; flex:1; min-height:0; background:#0c0e14;}

@@ -55,7 +55,7 @@ PN.pages = (function () {
       card.className = 'pg-card' + (selected.has(id) ? ' selected' : '');
       card.dataset.id = id;
       card.innerHTML = `
-        <div class="pg-check">${selected.has(id) ? '✓' : ''}</div>
+        <div class="pg-check">${selected.has(id) ? PN.ui.icon('check') : ''}</div>
         <div class="pg-thumb" title="タップで選択 / ダブルクリックで開く / ドラッグで並べ替え">${thumbCache[id] ? `<img src="${thumbCache[id]}" alt="" draggable="false">` : '<span>…</span>'}</div>
         <div class="pg-num">${i + 1}</div>`;
       // チェックは常に選択トグル
@@ -84,7 +84,7 @@ PN.pages = (function () {
     const card = gridEl.querySelector(`.pg-card[data-id="${cssEsc(id)}"]`);
     if (card) {
       card.classList.toggle('selected', selected.has(id));
-      card.querySelector('.pg-check').textContent = selected.has(id) ? '✓' : '';
+      card.querySelector('.pg-check').innerHTML = selected.has(id) ? PN.ui.icon('check') : '';
     }
     updateCount();
   }
