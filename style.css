@@ -223,6 +223,40 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 #btn-update.has-update{background:var(--ok); border-color:var(--ok); color:#fff; animation:pulse 1.6s ease-in-out infinite;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.65;}}
 
+/* ---------- 文字入れ（テキストボックス） ---------- */
+.text-layer{width:100%; height:100%;}
+.textbox{
+  position:absolute; box-sizing:border-box; overflow:visible;
+  border-radius:2px;
+}
+.textbox .tb-body{
+  width:100%; height:100%; box-sizing:border-box; padding:2px 4px;
+  outline:none; overflow:hidden; white-space:pre-wrap; word-break:break-word;
+  line-height:1.35;
+}
+/* 「文字」道具のときだけ枠と操作つまみを見せる（授業中はじゃまにならない） */
+.textbox.editing{outline:1px dashed rgba(61,139,253,.85); outline-offset:0;}
+.textbox.editing.selected{outline:2px solid var(--accent);}
+.textbox .tb-move, .textbox .tb-del, .textbox .tb-resize{
+  position:absolute; width:26px; height:26px; padding:0; border-radius:50%;
+  background:#000b; color:#fff; border:1px solid #fff; font-size:14px; line-height:22px;
+  text-align:center; cursor:pointer; touch-action:none; display:none;
+}
+.textbox.editing .tb-move, .textbox.editing .tb-del, .textbox.editing .tb-resize{display:block;}
+.textbox .tb-move{top:-13px; left:-13px; cursor:move;}
+.textbox .tb-del{top:-13px; right:-13px;}
+.textbox .tb-resize{
+  right:-11px; bottom:-11px; width:22px; height:22px; border-radius:4px;
+  background:var(--accent); cursor:nwse-resize;
+}
+/* 書式パネル */
+.tb-select{
+  font-size:14px; padding:7px 8px; border-radius:8px; max-width:190px;
+  border:1px solid var(--line); background:var(--panel-2); color:var(--ink);
+}
+.tb-select.tb-size{max-width:76px;}
+#grp-text .bar-btn.active{background:var(--accent); border-color:var(--accent); color:#fff;}
+
 /* ---------- ページ一覧（サムネイル） ---------- */
 .pages-screen{background:var(--bg);}
 .pages-hint{padding:8px 16px; color:var(--muted); font-size:13px; background:var(--panel); border-bottom:1px solid var(--line);}

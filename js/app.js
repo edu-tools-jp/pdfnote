@@ -5,7 +5,7 @@ PN.app = (function () {
   const $ = (s) => document.querySelector(s);
   let restoreHandle = null;
 
-  const APP_VERSION = '20260824k';   // 表示用（service-worker.js の VERSION と揃える）
+  const APP_VERSION = '20260825a';   // 表示用（service-worker.js の VERSION と揃える）
   let swReg = null, waitingWorker = null, swReloading = false;
 
   function showOnly(id) {

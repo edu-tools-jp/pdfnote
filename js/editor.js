@@ -55,6 +55,7 @@ PN.editor = (function () {
     elNoPages = $('#ed-nopages'); elFab = $('#ed-imm-fab');
 
     buildSwatches();
+    buildTextControls();
     bindToolbar();
     bindTouch();
     bindImmersive();
@@ -117,6 +118,9 @@ PN.editor = (function () {
     $('#grp-color').hidden = !isPen;
     $('#grp-width').hidden = !isPen;
     $('#grp-mask').hidden = (t !== 'mask');
+    $('#grp-text').hidden = (t !== 'text');
+    if (t !== 'text') selText = null;
+    pageViews.forEach(renderTexts);
     // 1本指が書き込みに使われる道具（ペン・直線・消す・かくす枠）のときだけ案内を出す
     const showHint = ['pen', 'line', 'eraser', 'mask'].includes(t);
     const hint = $('#ed-swipe-hint');
@@ -132,6 +136,7 @@ PN.editor = (function () {
     const drawTool = (tool === 'pen' || tool === 'line' || tool === 'eraser' || tool === 'pan');
     pv.live.style.pointerEvents = drawTool ? 'auto' : 'none';
     pv.mask.style.pointerEvents = (tool === 'mask' || tool === 'reveal') ? 'auto' : 'none';
+    pv.text.style.pointerEvents = (tool === 'text') ? 'auto' : 'none';
     pv.ink.style.pointerEvents = 'none';
   }
   function updateRouting() { pageViews.forEach(updatePVRouting); }
@@ -142,6 +147,7 @@ PN.editor = (function () {
     undoStack = []; redoStack = []; dirty = false; structureDirty = false; viewDirty = false;
     pdfCache = {}; imgCache = {}; imgUrls.forEach(u => URL.revokeObjectURL(u)); imgUrls = [];
     // 全画面状態はリセット（レイアウトのみ）
+    selText = null;
     immersive = false; paletteOpen = false; ed.classList.remove('immersive', 'palette-open'); elFab.hidden = true;
     $('#ed-title').textContent = nb.title;
     setTool('pan');   // 開いた直後は「移動」（誤って線を引かないように）
@@ -183,7 +189,8 @@ PN.editor = (function () {
   /* ---------- ページ群の生成・レイアウト ---------- */
   const annOf = (idx) => {
     const p = nb.pages[idx];
-    if (!p.annotations) p.annotations = { strokes: [], masks: [] };
+    if (!p.annotations) p.annotations = { strokes: [], masks: [], texts: [] };
+    if (!p.annotations.texts) p.annotations.texts = [];   // 旧データにも文字入れを追加
     if (!p.annotations.strokes) p.annotations.strokes = [];
     if (!p.annotations.masks) p.annotations.masks = [];
     return p.annotations;
@@ -195,12 +202,14 @@ PN.editor = (function () {
     nb.pages.forEach((p, i) => {
       const el = document.createElement('div'); el.className = 'pageview'; el.dataset.idx = i;
       const bg = mkCanvas('pv-bg'), ink = mkCanvas('layer pv-ink'), live = mkCanvas('layer pv-live');
+      const text = document.createElement('div'); text.className = 'layer text-layer pv-text';
       const mask = document.createElement('div'); mask.className = 'layer mask-layer pv-mask';
       const num = document.createElement('div'); num.className = 'pv-num'; num.textContent = (i + 1);
-      el.append(bg, ink, live, mask, num);
+      // 文字はマスクより下（＝かくす枠で答えの文字も隠せる）
+      el.append(bg, ink, live, text, mask, num);
       elPages.appendChild(el);
       const pv = {
-        idx: i, el, bg, ink, live, mask,
+        idx: i, el, bg, ink, live, mask, text,
         bgctx: bg.getContext('2d'), inkctx: ink.getContext('2d'), livectx: live.getContext('2d'),
         baseW: p.baseW, baseH: p.baseH, scale: 1, cssW: 1, cssH: 1, rendered: false, renderToken: 0
       };
@@ -237,7 +246,7 @@ PN.editor = (function () {
       layoutPV(pv); pv.rendered = false;
       // 書き込み（線・かくす枠）はここで同期的に描き直す。
       // 背景の再描画（非同期）を待つと、その間だけ線が消えてしまうため。
-      if (!pv.freed) { renderInk(pv); renderMasks(pv); }
+      if (!pv.freed) { renderInk(pv); renderMasks(pv); renderTexts(pv); }
     });
     renderVisible(); updateCurrent();
   }
@@ -318,7 +327,7 @@ PN.editor = (function () {
     }
     if (token !== pv.renderToken) return;
     if (!ok) { pv.rendered = false; return; }   // 失敗時は再試行できるよう戻す
-    renderInk(pv); renderMasks(pv);
+    renderInk(pv); renderMasks(pv); renderTexts(pv);
   }
 
   function clearCtx(canvas, ctx) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.restore(); }
@@ -372,6 +381,265 @@ PN.editor = (function () {
     renderMasks(pv); markDirty();
   }
 
+  /* ========== 文字入れ（テキストボックス） ========== */
+
+  /* すぐ使えるフォント（Windows標準。端末のフォント一覧も後から読み込める） */
+  const BASE_FONTS = [
+    { label: 'ゴシック体（游ゴシック）', css: '"Yu Gothic UI","Yu Gothic","Meiryo",sans-serif' },
+    { label: 'ゴシック体（メイリオ）', css: '"Meiryo","Yu Gothic UI",sans-serif' },
+    { label: 'ゴシック体（MS ゴシック）', css: '"MS Gothic","Yu Gothic UI",monospace' },
+    { label: '明朝体（游明朝）', css: '"Yu Mincho","MS Mincho",serif' },
+    { label: '明朝体（MS 明朝）', css: '"MS Mincho","Yu Mincho",serif' },
+    { label: '教科書体（UD デジタル教科書体）', css: '"UD Digi Kyokasho N-R","UD Digi Kyokasho NK-R","Yu Gothic UI",sans-serif' },
+    { label: '丸ゴシック（BIZ UDP）', css: '"BIZ UDPGothic","Yu Gothic UI",sans-serif' },
+    { label: '欧文（Arial）', css: 'Arial,Helvetica,sans-serif' },
+    { label: '欧文（Times）', css: '"Times New Roman",Times,serif' }
+  ];
+  const TEXT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 80];
+  const TEXT_COLORS = ['#1a1a1a', '#e0301e', '#1e6fe0', '#15a05a', '#f0a500', '#ffffff'];
+
+  /* 新しいテキストボックスに使う書式（最後に使った設定を覚えておく） */
+  let textStyle = { font: BASE_FONTS[0].css, size: 20, color: '#1a1a1a', bold: false, align: 'left', vertical: false, bg: 'none' };
+  let selText = null;        // { pv, idx } 選択中のテキストボックス
+  let localFontsLoaded = false;
+
+  const textsOf = (idx) => annOf(idx).texts;
+
+  /* ---- 端末に入っているフォントを読み込む（Chrome/Edge の対応時のみ） ---- */
+  async function loadLocalFonts() {
+    if (localFontsLoaded) return true;
+    if (!window.queryLocalFonts) { PN.ui.toast('このブラウザでは端末のフォント一覧を読み込めません'); return false; }
+    try {
+      const fonts = await window.queryLocalFonts();
+      const seen = new Set(BASE_FONTS.map(f => f.label));
+      const extra = [];
+      fonts.forEach(f => {
+        const fam = f.family;
+        if (!fam || seen.has(fam)) return;
+        seen.add(fam);
+        extra.push({ label: fam, css: '"' + fam.replace(/"/g, '') + '"' });
+      });
+      extra.sort((a, b) => a.label.localeCompare(b.label, 'ja'));
+      const sel = $('#text-font');
+      const grp = document.createElement('optgroup');
+      grp.label = 'この端末のフォント';
+      extra.forEach(f => { const o = document.createElement('option'); o.value = f.css; o.textContent = f.label; grp.appendChild(o); });
+      sel.appendChild(grp);
+      localFontsLoaded = true;
+      PN.ui.toast(extra.length + ' 個のフォントを読み込みました');
+      return true;
+    } catch (e) {
+      if (e && e.name === 'NotAllowedError') PN.ui.toast('フォントの読み込みが許可されませんでした');
+      else { console.error(e); PN.ui.toast('フォントを読み込めませんでした'); }
+      return false;
+    }
+  }
+
+  /* ---- 書式パネルの組み立て ---- */
+  function buildTextControls() {
+    const sel = $('#text-font');
+    if (sel && !sel.options.length) {
+      const grp = document.createElement('optgroup');
+      grp.label = 'よく使うフォント';
+      BASE_FONTS.forEach(f => { const o = document.createElement('option'); o.value = f.css; o.textContent = f.label; grp.appendChild(o); });
+      sel.appendChild(grp);
+      sel.value = textStyle.font;
+      sel.addEventListener('change', () => applyTextStyle({ font: sel.value }));
+    }
+    const size = $('#text-size');
+    if (size && !size.options.length) {
+      TEXT_SIZES.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; size.appendChild(o); });
+      size.value = textStyle.size;
+      size.addEventListener('change', () => applyTextStyle({ size: +size.value }));
+    }
+    const cs = $('#text-colors');
+    if (cs && !cs.children.length) {
+      TEXT_COLORS.forEach((c, i) => {
+        const b = document.createElement('span');
+        b.className = 'color-swatch' + (i === 0 ? ' active' : '');
+        b.style.background = c; b.dataset.color = c;
+        b.addEventListener('click', () => applyTextStyle({ color: c }));
+        cs.appendChild(b);
+      });
+    }
+    $('#text-bold').addEventListener('click', () => applyTextStyle({ bold: !textStyle.bold }));
+    $('#text-vertical').addEventListener('click', () => applyTextStyle({ vertical: !textStyle.vertical }));
+    $('#text-bg').addEventListener('click', () => applyTextStyle({ bg: textStyle.bg === 'white' ? 'none' : 'white' }));
+    document.querySelectorAll('#grp-text [data-align]').forEach(b => {
+      b.addEventListener('click', () => applyTextStyle({ align: b.dataset.align }));
+    });
+    $('#text-load-fonts').addEventListener('click', loadLocalFonts);
+    $('#text-delete').addEventListener('click', deleteSelectedText);
+    syncTextControls();
+  }
+
+  /* 書式パネルの表示を、いまの設定（または選択中のボックス）に合わせる */
+  function syncTextControls() {
+    const t = selectedTextObj() || textStyle;
+    const sel = $('#text-font'); if (sel) sel.value = t.font;
+    const size = $('#text-size'); if (size) size.value = t.size;
+    document.querySelectorAll('#text-colors .color-swatch').forEach(s => s.classList.toggle('active', s.dataset.color === t.color));
+    $('#text-bold').classList.toggle('active', !!t.bold);
+    $('#text-vertical').classList.toggle('active', !!t.vertical);
+    $('#text-bg').classList.toggle('active', t.bg === 'white');
+    document.querySelectorAll('#grp-text [data-align]').forEach(b => b.classList.toggle('active', b.dataset.align === (t.align || 'left')));
+    $('#text-delete').disabled = !selText;
+  }
+  function selectedTextObj() {
+    if (!selText) return null;
+    const arr = textsOf(selText.pv.idx);
+    return arr ? arr[selText.idx] : null;
+  }
+
+  /* 書式の変更。選択中のボックスがあればそれに適用、無ければ次に作る文字の設定に */
+  function applyTextStyle(patch) {
+    Object.assign(textStyle, patch);
+    const t = selectedTextObj();
+    if (t) {
+      pushUndo(selText.pv.idx);
+      Object.assign(t, patch);
+      renderTexts(selText.pv);
+      markDirty();
+    }
+    syncTextControls();
+  }
+
+  /* ---- 描画（DOM） ---- */
+  function renderTexts(pv) {
+    pv.text.innerHTML = '';
+    if (!nb || !nb.pages.length) return;
+    const editing = (tool === 'text');
+    textsOf(pv.idx).forEach((t, idx) => {
+      const el = document.createElement('div');
+      el.className = 'textbox' + (editing ? ' editing' : '') +
+        (selText && selText.pv === pv && selText.idx === idx ? ' selected' : '');
+      el.dataset.idx = idx;
+      el.style.left = (t.x / pv.baseW * 100) + '%';
+      el.style.top = (t.y / pv.baseH * 100) + '%';
+      el.style.width = (t.w / pv.baseW * 100) + '%';
+      el.style.height = (t.h / pv.baseH * 100) + '%';
+      if (t.bg === 'white') el.style.background = '#fff';
+
+      const body = document.createElement('div');
+      body.className = 'tb-body';
+      body.style.fontFamily = t.font;
+      body.style.fontSize = (t.size * pv.scale) + 'px';
+      body.style.color = t.color;
+      body.style.fontWeight = t.bold ? '700' : '400';
+      body.style.textAlign = t.align || 'left';
+      if (t.vertical) body.style.writingMode = 'vertical-rl';
+      body.textContent = t.text || '';
+      if (editing) { body.contentEditable = 'true'; body.spellcheck = false; }
+      el.appendChild(body);
+
+      if (editing) {
+        const mv = document.createElement('button'); mv.className = 'tb-move'; mv.textContent = '✥'; mv.title = 'ドラッグで移動';
+        const del = document.createElement('button'); del.className = 'tb-del'; del.textContent = '×'; del.title = '削除';
+        const rs = document.createElement('button'); rs.className = 'tb-resize'; rs.title = 'ドラッグで大きさ変更';
+        el.append(mv, del, rs);
+        wireTextBox(pv, el, idx, body, mv, del, rs);
+      }
+      pv.text.appendChild(el);
+    });
+    syncTextControls();
+  }
+
+  /* ---- 1つのテキストボックスの操作 ---- */
+  function wireTextBox(pv, el, idx, body, mv, del, rs) {
+    body.addEventListener('pointerdown', (e) => { e.stopPropagation(); selectText(pv, idx); });
+    body.addEventListener('input', () => { textsOf(pv.idx)[idx].text = body.innerText; markDirty(); });
+    body.addEventListener('blur', () => {
+      const t = textsOf(pv.idx)[idx];
+      if (t && !(t.text || '').trim()) {        // 空のまま離れたら消す
+        textsOf(pv.idx).splice(idx, 1);
+        if (selText && selText.pv === pv && selText.idx === idx) selText = null;
+        renderTexts(pv); markDirty();
+      }
+    });
+    del.addEventListener('pointerdown', (e) => e.stopPropagation());
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pushUndo(pv.idx);
+      textsOf(pv.idx).splice(idx, 1);
+      selText = null; renderTexts(pv); markDirty();
+    });
+    mv.addEventListener('pointerdown', (e) => startTextDrag(e, pv, idx, 'move', el));
+    rs.addEventListener('pointerdown', (e) => startTextDrag(e, pv, idx, 'resize', el));
+  }
+
+  function selectText(pv, idx) {
+    selText = { pv, idx };
+    pv.text.querySelectorAll('.textbox').forEach(b => b.classList.toggle('selected', +b.dataset.idx === idx));
+    syncTextControls();
+  }
+  function deleteSelectedText() {
+    const t = selectedTextObj(); if (!t) return;
+    const { pv, idx } = selText;
+    pushUndo(pv.idx);
+    textsOf(pv.idx).splice(idx, 1);
+    selText = null; renderTexts(pv); markDirty();
+  }
+
+  /* 移動・サイズ変更 */
+  let textDrag = null;
+  function startTextDrag(e, pv, idx, mode, el) {
+    e.preventDefault(); e.stopPropagation();
+    const t = textsOf(pv.idx)[idx]; if (!t) return;
+    selectText(pv, idx);
+    pushUndo(pv.idx);
+    textDrag = { pv, idx, mode, el, startX: e.clientX, startY: e.clientY, x0: t.x, y0: t.y, w0: t.w, h0: t.h };
+    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+    document.addEventListener('pointermove', onTextDragMove);
+    document.addEventListener('pointerup', endTextDrag);
+  }
+  function onTextDragMove(e) {
+    if (!textDrag) return;
+    const { pv, idx, mode } = textDrag;
+    const t = textsOf(pv.idx)[idx]; if (!t) return;
+    const dx = (e.clientX - textDrag.startX) / pv.scale;
+    const dy = (e.clientY - textDrag.startY) / pv.scale;
+    if (mode === 'move') {
+      t.x = Math.max(0, Math.min(pv.baseW - t.w, textDrag.x0 + dx));
+      t.y = Math.max(0, Math.min(pv.baseH - t.h, textDrag.y0 + dy));
+      textDrag.el.style.left = (t.x / pv.baseW * 100) + '%';
+      textDrag.el.style.top = (t.y / pv.baseH * 100) + '%';
+    } else {
+      t.w = Math.max(40, Math.min(pv.baseW - t.x, textDrag.w0 + dx));
+      t.h = Math.max(24, Math.min(pv.baseH - t.y, textDrag.h0 + dy));
+      textDrag.el.style.width = (t.w / pv.baseW * 100) + '%';
+      textDrag.el.style.height = (t.h / pv.baseH * 100) + '%';
+    }
+  }
+  function endTextDrag() {
+    if (!textDrag) return;
+    document.removeEventListener('pointermove', onTextDragMove);
+    document.removeEventListener('pointerup', endTextDrag);
+    textDrag = null;
+    markDirty();
+  }
+
+  /* 何もない所をタップ＝新しいテキストボックスを作る */
+  function onTextLayerDown(e, pv) {
+    if (tool !== 'text' || suppressDraw) return;
+    if (e.target.closest('.textbox')) return;      // 既存のボックス上なら何もしない
+    const [x, y] = toIntrinsic(e, pv);
+    pushUndo(pv.idx);
+    const t = {
+      x: Math.max(0, Math.min(pv.baseW - 200, x)), y: Math.max(0, Math.min(pv.baseH - 40, y)),
+      w: Math.min(260, pv.baseW - x), h: Math.max(40, textStyle.size * 2),
+      text: '', font: textStyle.font, size: textStyle.size, color: textStyle.color,
+      bold: textStyle.bold, align: textStyle.align, vertical: textStyle.vertical, bg: textStyle.bg
+    };
+    const arr = textsOf(pv.idx);
+    arr.push(t);
+    selText = { pv, idx: arr.length - 1 };
+    renderTexts(pv);
+    markDirty();
+    // 作った直後に入力できるようにする
+    const el = pv.text.querySelector('.textbox[data-idx="' + (arr.length - 1) + '"] .tb-body');
+    if (el) setTimeout(() => el.focus(), 0);
+  }
+
   /* ---------- 入力 ---------- */
   function wirePV(pv) {
     pv.live.addEventListener('pointerdown', (e) => onDown(e, pv));
@@ -382,6 +650,7 @@ PN.editor = (function () {
     pv.mask.addEventListener('pointermove', (e) => onMaskMove(e, pv));
     pv.mask.addEventListener('pointerup', (e) => onMaskUp(e, pv));
     pv.mask.addEventListener('click', (e) => onMaskClick(e, pv));
+    pv.text.addEventListener('pointerdown', (e) => onTextLayerDown(e, pv));
   }
   function toIntrinsic(e, pv) {
     const r = pv.el.getBoundingClientRect();
@@ -506,7 +775,7 @@ PN.editor = (function () {
     const e = undoStack.pop();
     redoStack.push({ idx: e.idx, before: structuredClone(annOf(e.idx)) });
     nb.pages[e.idx].annotations = e.before;
-    const pv = pageViews[e.idx]; if (pv) { renderInk(pv); renderMasks(pv); }
+    const pv = pageViews[e.idx]; if (pv) { renderInk(pv); renderMasks(pv); renderTexts(pv); }
     markDirty();
   }
   function redo() {
@@ -514,7 +783,7 @@ PN.editor = (function () {
     const e = redoStack.pop();
     undoStack.push({ idx: e.idx, before: structuredClone(annOf(e.idx)) });
     nb.pages[e.idx].annotations = e.before;
-    const pv = pageViews[e.idx]; if (pv) { renderInk(pv); renderMasks(pv); }
+    const pv = pageViews[e.idx]; if (pv) { renderInk(pv); renderMasks(pv); renderTexts(pv); }
     markDirty();
   }
 
@@ -781,8 +1050,8 @@ PN.editor = (function () {
   }
   async function clearPageInk() {
     if (!(await PN.ui.confirm('今表示しているページの書き込み（線・かくす枠）をすべて消します。よろしいですか？', { danger: true, ok: '消す' }))) return;
-    pushUndo(currentIdx); nb.pages[currentIdx].annotations = { strokes: [], masks: [] };
-    const pv = pageViews[currentIdx]; if (pv) { renderInk(pv); renderMasks(pv); } markDirty();
+    pushUndo(currentIdx); nb.pages[currentIdx].annotations = { strokes: [], masks: [], texts: [] };
+    const pv = pageViews[currentIdx]; if (pv) { renderInk(pv); renderMasks(pv); renderTexts(pv); } markDirty();
   }
   async function deletePage() {
     if (!(await PN.ui.confirm('今表示しているページを削除します。元に戻せません。よろしいですか？', { danger: true, ok: '削除' }))) return;
@@ -844,10 +1113,56 @@ PN.editor = (function () {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     }
     const ann = def.annotations || {};
-    // 背景 → 書き込み → かくす枠（上に重ねて答えを隠す）の順
+    // 背景 → 書き込み → 入れた文字 → かくす枠（上に重ねて答えを隠す）の順
     if (wantInk && ann.strokes) ann.strokes.forEach(s => composeStroke(ctx, s, scale, canvas.width));
+    if (ann.texts) ann.texts.forEach(t => composeText(ctx, t, scale));
     if (wantMasks && ann.masks) ann.masks.forEach(m => { ctx.fillStyle = m.color || '#c0392b'; ctx.fillRect(m.x * scale, m.y * scale, m.w * scale, m.h * scale); });
     return canvas;
+  }
+
+  /* テキストボックスをキャンバスに描く（PDF書き出し・サムネイル用） */
+  function composeText(ctx, t, scale) {
+    const x = t.x * scale, y = t.y * scale, w = t.w * scale, h = t.h * scale;
+    const size = Math.max(1, (t.size || 20) * scale);
+    const lh = size * 1.35, pad = 4 * scale;
+    ctx.save();
+    if (t.bg === 'white') { ctx.fillStyle = '#fff'; ctx.fillRect(x, y, w, h); }
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();      // はみ出しは切る（画面と同じ見え方）
+    ctx.fillStyle = t.color || '#1a1a1a';
+    ctx.font = (t.bold ? 'bold ' : '') + size + 'px ' + (t.font || 'sans-serif');
+    ctx.textBaseline = 'top';
+    const raw = String(t.text || '');
+    if (t.vertical) {
+      // 縦書き：右の列から、上から下へ1文字ずつ
+      let cx = x + w - pad - size, cy = y + pad;
+      for (const ch of raw) {
+        if (ch === '\n' || cy + size > y + h - pad) { cx -= lh; cy = y + pad; if (ch === '\n') continue; }
+        if (cx < x - size) break;
+        ctx.fillText(ch, cx, cy);
+        cy += lh;
+      }
+    } else {
+      const maxW = Math.max(1, w - pad * 2);
+      const lines = [];
+      raw.split('\n').forEach(para => {
+        let line = '';
+        for (const ch of para) {
+          if (ctx.measureText(line + ch).width > maxW && line) { lines.push(line); line = ch; }
+          else line += ch;
+        }
+        lines.push(line);
+      });
+      lines.forEach((line, i) => {
+        const ty = y + pad + i * lh;
+        if (ty + size > y + h + lh) return;
+        const lw = ctx.measureText(line).width;
+        let tx = x + pad;
+        if (t.align === 'center') tx = x + (w - lw) / 2;
+        else if (t.align === 'right') tx = x + w - pad - lw;
+        ctx.fillText(line, tx, ty);
+      });
+    }
+    ctx.restore();
   }
 
   /* ---------- ページ操作（一覧画面から呼ばれる。ID指定で安全に） ---------- */
@@ -948,13 +1263,14 @@ PN.editor = (function () {
   function onKey(e) {
     if ($('#screen-editor').hidden) return;
     if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    if (e.target && e.target.isContentEditable) return;   // 文字入力中はショートカットを効かせない
     const ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (ctrl && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
     if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); goPage(currentIdx + 1); }
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); goPage(currentIdx - 1); }
     else if (e.key === 'Escape' && immersive) { exitImmersive(); }
-    else { const map = { '1': 'pen', '2': 'line', '3': 'eraser', '4': 'mask', '5': 'reveal', '6': 'pan' }; if (map[e.key]) setTool(map[e.key]); }
+    else { const map = { '1': 'pen', '2': 'line', '3': 'eraser', '4': 'text', '5': 'mask', '6': 'reveal', '7': 'pan' }; if (map[e.key]) setTool(map[e.key]); }
   }
 
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
