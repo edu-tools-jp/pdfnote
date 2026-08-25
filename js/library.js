@@ -137,10 +137,9 @@ PN.library = (function () {
     ].filter(Boolean).join(' ・ ');
     const el = document.createElement('div'); el.className = 'card folder-card';
     const fc = folderColor(f.color);
-    el.style.setProperty('--fc-bg', fc.bg);
-    el.style.setProperty('--fc-line', fc.line);
+    el.style.setProperty('--fc', fc.glyph);
     el.innerHTML = `
-      <div class="card-thumb folder-thumb">📁</div>
+      <div class="card-thumb folder-thumb">${PN.ui.icon('folder-solid', 'ic-solid')}</div>
       <div class="card-body">
         <div class="card-title">${PN.ui.escapeHTML(f.name)}</div>
         <div class="card-meta">${meta}</div>
@@ -184,15 +183,16 @@ PN.library = (function () {
 
   /* ---- メニュー ---- */
   /* フォルダの色。key を index.json に保存し、bg=サムネの背景／line=カードの枠 */
+  /* フォルダの色。color = 色えらびの丸 / glyph = フォルダの絵そのものの色 */
   const FOLDER_COLORS = [
-    { value: '',       label: '標準',    color: '#4a5a80', bg: '#2c3651', line: '#5b6c94' },
-    { value: 'blue',   label: '青',      color: '#3d8bfd', bg: '#28558f', line: '#5a9dff' },
-    { value: 'green',  label: '緑',      color: '#39b87a', bg: '#236b4f', line: '#4fd196' },
-    { value: 'teal',   label: '水色',    color: '#35c4d6', bg: '#1c6472', line: '#4bd6e6' },
-    { value: 'orange', label: 'だいだい', color: '#f0a500', bg: '#7a5410', line: '#ffbe2e' },
-    { value: 'red',    label: '赤',      color: '#e0533d', bg: '#7a3428', line: '#f4715c' },
-    { value: 'pink',   label: '桃',      color: '#ef77b4', bg: '#733559', line: '#ff93c6' },
-    { value: 'purple', label: '紫',      color: '#b06cf0', bg: '#553d80', line: '#c48bff' }
+    { value: '',       label: '標準（黄）', color: '#f5c141', glyph: '#f5c141' },
+    { value: 'blue',   label: '青',        color: '#4a9bff', glyph: '#4a9bff' },
+    { value: 'green',  label: '緑',        color: '#4ecb71', glyph: '#4ecb71' },
+    { value: 'teal',   label: '水色',      color: '#3fc9dd', glyph: '#3fc9dd' },
+    { value: 'orange', label: 'だいだい',   color: '#ff9c33', glyph: '#ff9c33' },
+    { value: 'red',    label: '赤',        color: '#ef5f4a', glyph: '#ef5f4a' },
+    { value: 'pink',   label: '桃',        color: '#ff86c2', glyph: '#ff86c2' },
+    { value: 'purple', label: '紫',        color: '#b07cf5', glyph: '#b07cf5' }
   ];
   const folderColor = (key) => FOLDER_COLORS.find(c => c.value === (key || '')) || FOLDER_COLORS[0];
 

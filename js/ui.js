@@ -22,6 +22,31 @@ PN.ui = (function () {
   }
 
   /* 確認ダイアログ（Promise<boolean>） */
+  /* お知らせダイアログ（OKだけ）。notes:[{version,title,items:[]}] */
+  function info({ title, notes = [], ok = '閉じる' }) {
+    return new Promise((resolve) => {
+      const body = notes.map(n => `
+        <div class="wn-block">
+          <div class="wn-head">${escapeHTML(n.title)}<span class="wn-ver">${escapeHTML(n.version)}</span></div>
+          <ul class="wn-list">${(n.items || []).map(t => `<li>${escapeHTML(t)}</li>`).join('')}</ul>
+        </div>`).join('');
+      const back = document.createElement('div');
+      back.className = 'modal-back';
+      back.innerHTML = `
+        <div class="modal wn-modal">
+          <h3>${escapeHTML(title)}</h3>
+          <div class="modal-body">${body}</div>
+          <div class="modal-foot"><button class="bar-btn primary" data-act="ok">${escapeHTML(ok)}</button></div>
+        </div>`;
+      document.getElementById('modal-root').appendChild(back);
+      const close = () => { back.remove(); resolve(true); };
+      back.addEventListener('click', (e) => {
+        if (e.target === back || e.target.getAttribute('data-act') === 'ok') close();
+      });
+      back.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    });
+  }
+
   function confirm(message, { ok = 'OK', cancel = 'キャンセル', danger = false } = {}) {
     return new Promise((resolve) => {
       const back = document.createElement('div');
@@ -203,5 +228,5 @@ PN.ui = (function () {
   }
   const escapeAttr = escapeHTML;
 
-  return { toast, busy, confirm, form, choose, menu, escapeHTML, icon };
+  return { toast, busy, confirm, info, form, choose, menu, escapeHTML, icon };
 })();

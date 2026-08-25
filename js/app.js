@@ -7,7 +7,29 @@ PN.app = (function () {
 
   // ★ 公開のたびに、この値と service-worker.js の VERSION を「同じ値」に変えること。
   //    食い違うと「表示中のファイルが古いようです」の案内が出る（それが食い違い検知のしくみ）。
-  const APP_VERSION = '20260825k';
+  const APP_VERSION = '20260825l';
+
+  /* 更新のたびに、いちばん上へ新しい項目を足す（先生に知らせる内容）。
+     ここに書いた内容が、更新後にアプリを開いたとき自動で表示される。 */
+  const RELEASE_NOTES = [
+    {
+      version: '20260825l',
+      title: 'フォルダの色分けと、更新のお知らせ',
+      items: [
+        'フォルダごとに色を選べるようになりました（フォルダの ⋯ →「色を変える」、または新規作成時）。',
+        'アプリが新しくなったとき、変わった点をこの画面でお知らせするようにしました。'
+      ]
+    },
+    {
+      version: '20260825k',
+      title: '画面の見た目を整えました',
+      items: [
+        '道具のアイコンを描き直し、アプリ全体で見た目を統一しました。',
+        '上のツールバーが、どの道具を選んでも2行に収まるようにしました。'
+      ]
+    }
+  ];
+  const LAST_SEEN_KEY = 'pdfnote.lastSeenVersion';
   let swReg = null, waitingWorker = null, swReloading = false;
 
   function showOnly(id) {
@@ -85,6 +107,22 @@ PN.app = (function () {
     if (!e) return '不明なエラー';
     if (e.name || e.message) return (e.name || 'Error') + ': ' + (e.message || '');
     return String(e);
+  }
+
+  /* 前に開いたときより新しくなっていたら、変わった点をお知らせする。
+     初めて開いたときや、同じ版のときは何も出さない。 */
+  let whatsNewShown = false;
+  function showWhatsNew() {
+    if (whatsNewShown) return;
+    whatsNewShown = true;
+    let last = null;
+    try { last = localStorage.getItem(LAST_SEEN_KEY); } catch (e) { return; }
+    try { localStorage.setItem(LAST_SEEN_KEY, APP_VERSION); } catch (e) {}
+    if (!last || last === APP_VERSION) return;
+    const fresh = [];
+    for (const n of RELEASE_NOTES) { if (n.version === last) break; fresh.push(n); }
+    if (!fresh.length) return;
+    PN.ui.info({ title: 'PDFノートが新しくなりました', notes: fresh });
   }
 
   /* 画面すみの版番号は APP_VERSION から入れる（手書きの重複を作らない） */
@@ -192,7 +230,7 @@ PN.app = (function () {
   function pickImageForPage() { $('#image-input').click(); }
 
   /* ---- 画面遷移 ---- */
-  function showLibrary() { showOnly('#screen-library'); PN.library.show(); }
+  function showLibrary() { showOnly('#screen-library'); PN.library.show(); showWhatsNew(); }
 
   async function openEditor(nb, pickAfter) {
     showOnly('#screen-editor');
