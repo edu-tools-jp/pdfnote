@@ -38,14 +38,27 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 .big-btn.ghost{background:transparent;}
 
 .bar-btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:7px;
   font-size:16px; padding:9px 13px; border-radius:10px;
   border:1px solid var(--line); background:var(--panel-2); color:var(--ink);
   min-height:44px; min-width:44px; line-height:1; white-space:nowrap;
 }
+.bar-btn.icon{padding:9px;}
 .bar-btn:hover{filter:brightness(1.12);}
 .bar-btn.primary{background:var(--accent); border-color:var(--accent); color:#fff;}
 .bar-btn.ghost{background:transparent;}
 .bar-btn[disabled]{opacity:.4; cursor:default;}
+
+/* ---------- アイコン（かんたんガイドPDFと同じ図案） ---------- */
+.icon-sprite{display:none;}
+.ic{
+  width:1em; height:1em; flex:none; display:block;
+  fill:none; stroke:currentColor; stroke-width:1.8;
+  stroke-linecap:round; stroke-linejoin:round;
+}
+.bar-btn .ic{width:20px; height:20px;}
+.ic-mask{color:var(--danger);}
+.tool-btn.active .ic-mask{color:#fff;}
 
 /* ---------- スタート画面 ---------- */
 #screen-start{align-items:center; justify-content:center; padding:24px;}
@@ -134,15 +147,27 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 @media (max-width:900px){ .lib-hint{display:none;} }
 
 /* ---------- エディタ ---------- */
-.editor-bar{flex-wrap:wrap; height:auto; min-height:var(--bar-h); padding:6px 12px; gap:8px 10px;}
+/* 上のバーはつねに2行。1行目＝道具とページ操作、2行目＝選んだ道具の設定と表示の操作。
+   行の中では折り返さず、入りきらないときだけ横スクロールさせる（3行目を作らない）。 */
+.editor-bar{
+  flex-direction:column; align-items:stretch; flex-wrap:nowrap;
+  height:auto; min-height:var(--bar-h); padding:6px 12px; gap:6px;
+}
+.bar-row{display:flex; align-items:center; gap:8px; min-width:0; flex-wrap:nowrap;}
+.bar-row > .bar-left{flex:0 1 auto; min-width:0;}
+.bar-row > .bar-right{margin-left:auto; flex:0 0 auto;}
+.bar-row-opt{overflow-x:auto; overflow-y:hidden; scrollbar-width:thin; padding-bottom:1px;}
+.bar-row-opt::-webkit-scrollbar{height:6px;}
+.bar-row-opt::-webkit-scrollbar-thumb{background:var(--line); border-radius:3px;}
+
 .ed-title{font-size:16px; font-weight:700; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-.bar-tools{display:flex; align-items:center; gap:6px 10px; flex-wrap:wrap;}
-.tool-group{display:flex; align-items:center; gap:6px; padding-right:10px; border-right:1px solid var(--line);}
-.tool-group:last-child{border-right:none;}
+.tool-group{display:flex; align-items:center; gap:6px; padding-right:10px; border-right:1px solid var(--line); flex:0 0 auto;}
+.tool-main{border-right:none; padding-right:0;}
+.bar-row-opt > .tool-group:last-of-type{border-right:none; padding-right:0;}
 
 .tool-btn{
-  display:flex; flex-direction:column; align-items:center; gap:2px;
-  font-size:20px; line-height:1; padding:6px 10px; min-width:54px; min-height:48px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  font-size:22px; line-height:1; padding:5px 8px; min-width:56px; min-height:48px;
   border-radius:10px; border:1px solid var(--line); background:var(--panel-2); color:var(--ink);
 }
 .tool-btn small{font-size:11px; color:var(--muted);}
@@ -204,12 +229,28 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
    「ページ一覧」「＋ページ」と同じ行のまま、その行の左端に表示する。
    案内を出すあいだはボタン群を独立した行にして、案内を左端・ボタンを右端に振り分ける */
 .swipe-hint{
-  align-self:center; margin-right:auto;
+  margin-left:auto; padding-left:12px; flex:0 0 auto;
   color:var(--muted); font-size:14px; line-height:1.4; white-space:nowrap;
 }
-#screen-editor.has-hint .bar-right{ flex:0 0 100%; margin-left:0; }
 .swipe-hint b{color:var(--ink);}
-@media (max-width:820px){ .swipe-hint{display:none !important;} }
+@media (max-width:1500px){ .swipe-hint{display:none !important;} }
+
+/* 画面が狭いときは、ラベルを段階的に畳んでアイコンだけにする（2行を保つため）。
+   授業中に使う「全部みせる／全部かくす」のラベルは、できるだけ最後まで残す。 */
+@media (max-width:1700px){
+  #grp-lasso .lbl, #ed-immersive .lbl{display:none;}
+  #grp-lasso .bar-btn, #ed-immersive{padding:9px;}
+}
+@media (max-width:1450px){
+  .bar-row-opt .lbl{display:none;}
+  .bar-row-opt .bar-btn{padding:9px;}
+}
+@media (max-width:1350px){
+  .bar-right .lbl{display:none;}
+  .bar-right .bar-btn{padding:9px;}
+  .ed-title{max-width:150px;}
+  .tool-btn{min-width:50px; padding:5px 6px;}
+}
 .thumbs{display:flex; gap:8px; overflow-x:auto; flex:1; height:100%; align-items:center; padding:2px;}
 .thumb{
   flex:0 0 auto; height:72px; aspect-ratio:3/4; border-radius:6px; border:2px solid var(--line);

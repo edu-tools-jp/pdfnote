@@ -130,8 +130,6 @@ PN.editor = (function () {
     const showHint = ['pen', 'line', 'eraser', 'mask'].includes(t);
     const hint = $('#ed-swipe-hint');
     if (hint) hint.hidden = !showHint;
-    // 案内を出すあいだは、ボタン群を独立した行にして案内を左端に置く
-    ed.classList.toggle('has-hint', showHint);
     elScroller.classList.toggle('panning', t === 'pan');
     updateRouting();
   }
@@ -1367,11 +1365,19 @@ PN.editor = (function () {
       else if (nb && nb.pages.length) setTimeout(relayoutAll, 60);
     });
   }
+  // 全画面ボタンの見た目を切り替える（アイコンを消さずに中身だけ差し替える）
+  function setImmersiveBtn(iconId, label, title) {
+    const btn = $('#ed-immersive'); if (!btn) return;
+    const use = btn.querySelector('use'); if (use) use.setAttribute('href', iconId);
+    const lbl = btn.querySelector('.lbl'); if (lbl) lbl.textContent = label;
+    btn.title = title;
+  }
+
   function enterImmersive() {
     immersive = true; paletteOpen = false;
     ed.classList.add('immersive'); ed.classList.remove('palette-open');
     elFab.hidden = false;
-    const btn = $('#ed-immersive'); btn.textContent = '⤡ 全画面解除'; btn.title = '全画面を解除する';
+    setImmersiveBtn('#i-exit-full', '全画面解除', '全画面を解除する');
     const el = document.documentElement; const p = el.requestFullscreen && el.requestFullscreen(); if (p && p.catch) p.catch(() => {});
     updateRouting();
     setTimeout(relayoutAll, 80);
@@ -1380,7 +1386,7 @@ PN.editor = (function () {
   function exitImmersive() {
     immersive = false; paletteOpen = false;
     ed.classList.remove('immersive', 'palette-open'); elFab.hidden = true;
-    const btn = $('#ed-immersive'); btn.textContent = '⛶ 全画面'; btn.title = '全画面（メニューを隠してPDFを大きく映す）';
+    setImmersiveBtn('#i-full', '全画面', '全画面（メニューを隠してPDFを大きく映す）');
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
     updateRouting();
     setTimeout(relayoutAll, 80);
