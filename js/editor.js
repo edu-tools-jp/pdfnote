@@ -108,6 +108,8 @@ PN.editor = (function () {
     $('#ed-next').addEventListener('click', () => goPage(currentIdx + 1));
     $('#ed-add-page').addEventListener('click', () => PN.app.pickFilesForCurrentNotebook());
     $('#ed-page-list').addEventListener('click', () => PN.pages.open());
+    $('#ed-image').addEventListener('click', (e) => imageMenu(e.currentTarget));
+    buildLassoControls();
     $('#ed-page-menu').addEventListener('click', (e) => pageMenu(e.currentTarget));
   }
 
@@ -119,8 +121,11 @@ PN.editor = (function () {
     $('#grp-width').hidden = !isPen;
     $('#grp-mask').hidden = (t !== 'mask');
     $('#grp-text').hidden = (t !== 'text');
+    $('#grp-lasso').hidden = (t !== 'lasso');
     if (t !== 'text') selText = null;
-    pageViews.forEach(renderTexts);
+    if (t !== 'image') selImg = null;
+    if (t !== 'lasso') clearLasso();
+    pageViews.forEach(pv => { renderTexts(pv); renderImages(pv); });
     // 1本指が書き込みに使われる道具（ペン・直線・消す・かくす枠）のときだけ案内を出す
     const showHint = ['pen', 'line', 'eraser', 'mask'].includes(t);
     const hint = $('#ed-swipe-hint');
@@ -133,10 +138,11 @@ PN.editor = (function () {
 
   /* レイヤーのポインタ受付（道具に応じて）。全画面でも通常どおり描ける */
   function updatePVRouting(pv) {
-    const drawTool = (tool === 'pen' || tool === 'line' || tool === 'eraser' || tool === 'pan');
+    const drawTool = (tool === 'pen' || tool === 'line' || tool === 'eraser' || tool === 'pan' || tool === 'lasso');
     pv.live.style.pointerEvents = drawTool ? 'auto' : 'none';
     pv.mask.style.pointerEvents = (tool === 'mask' || tool === 'reveal') ? 'auto' : 'none';
     pv.text.style.pointerEvents = (tool === 'text') ? 'auto' : 'none';
+    pv.img.style.pointerEvents = (tool === 'image') ? 'auto' : 'none';
     pv.ink.style.pointerEvents = 'none';
   }
   function updateRouting() { pageViews.forEach(updatePVRouting); }
@@ -147,7 +153,8 @@ PN.editor = (function () {
     undoStack = []; redoStack = []; dirty = false; structureDirty = false; viewDirty = false;
     pdfCache = {}; imgCache = {}; imgUrls.forEach(u => URL.revokeObjectURL(u)); imgUrls = [];
     // 全画面状態はリセット（レイアウトのみ）
-    selText = null;
+    selText = null; selImg = null; lassoSel = null;
+    Object.keys(objUrls).forEach(k => delete objUrls[k]);
     immersive = false; paletteOpen = false; ed.classList.remove('immersive', 'palette-open'); elFab.hidden = true;
     $('#ed-title').textContent = nb.title;
     setTool('pan');   // 開いた直後は「移動」（誤って線を引かないように）
@@ -189,8 +196,9 @@ PN.editor = (function () {
   /* ---------- ページ群の生成・レイアウト ---------- */
   const annOf = (idx) => {
     const p = nb.pages[idx];
-    if (!p.annotations) p.annotations = { strokes: [], masks: [], texts: [] };
-    if (!p.annotations.texts) p.annotations.texts = [];   // 旧データにも文字入れを追加
+    if (!p.annotations) p.annotations = { strokes: [], masks: [], texts: [], images: [] };
+    if (!p.annotations.texts) p.annotations.texts = [];     // 旧データにも文字入れを追加
+    if (!p.annotations.images) p.annotations.images = [];   // 旧データにも画像を追加
     if (!p.annotations.strokes) p.annotations.strokes = [];
     if (!p.annotations.masks) p.annotations.masks = [];
     return p.annotations;
@@ -202,14 +210,15 @@ PN.editor = (function () {
     nb.pages.forEach((p, i) => {
       const el = document.createElement('div'); el.className = 'pageview'; el.dataset.idx = i;
       const bg = mkCanvas('pv-bg'), ink = mkCanvas('layer pv-ink'), live = mkCanvas('layer pv-live');
+      const img = document.createElement('div'); img.className = 'layer img-layer pv-img';
       const text = document.createElement('div'); text.className = 'layer text-layer pv-text';
       const mask = document.createElement('div'); mask.className = 'layer mask-layer pv-mask';
       const num = document.createElement('div'); num.className = 'pv-num'; num.textContent = (i + 1);
-      // 文字はマスクより下（＝かくす枠で答えの文字も隠せる）
-      el.append(bg, ink, live, text, mask, num);
+      // 画像は手書きより下、文字はマスクより下（＝かくす枠で答えの文字も隠せる）
+      el.append(bg, img, ink, live, text, mask, num);
       elPages.appendChild(el);
       const pv = {
-        idx: i, el, bg, ink, live, mask, text,
+        idx: i, el, bg, ink, live, mask, text, img,
         bgctx: bg.getContext('2d'), inkctx: ink.getContext('2d'), livectx: live.getContext('2d'),
         baseW: p.baseW, baseH: p.baseH, scale: 1, cssW: 1, cssH: 1, rendered: false, renderToken: 0
       };
@@ -246,7 +255,7 @@ PN.editor = (function () {
       layoutPV(pv); pv.rendered = false;
       // 書き込み（線・かくす枠）はここで同期的に描き直す。
       // 背景の再描画（非同期）を待つと、その間だけ線が消えてしまうため。
-      if (!pv.freed) { renderInk(pv); renderMasks(pv); renderTexts(pv); }
+      if (!pv.freed) { renderInk(pv); renderMasks(pv); renderTexts(pv); renderImages(pv); }
     });
     renderVisible(); updateCurrent();
   }
@@ -327,7 +336,7 @@ PN.editor = (function () {
     }
     if (token !== pv.renderToken) return;
     if (!ok) { pv.rendered = false; return; }   // 失敗時は再試行できるよう戻す
-    renderInk(pv); renderMasks(pv); renderTexts(pv);
+    renderInk(pv); renderMasks(pv); renderTexts(pv); renderImages(pv);
   }
 
   function clearCtx(canvas, ctx) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.restore(); }
@@ -379,6 +388,185 @@ PN.editor = (function () {
     const pv = pageViews[currentIdx]; if (!pv) return;
     annOf(currentIdx).masks.forEach(m => { m.revealed = reveal; });
     renderMasks(pv); markDirty();
+  }
+
+  /* ========== ページに置く画像（写真・カメラ撮影） ========== */
+
+  const imagesOf = (idx) => annOf(idx).images;
+  const objUrls = {};      // asset名 → 表示用URL（ノートを閉じるときに解放）
+  let selImg = null;       // 選択中の画像 { pv, idx }
+
+  async function imageUrl(asset) {
+    if (objUrls[asset]) return objUrls[asset];
+    const blob = await PN.storage.readAsset(nb.id, asset);
+    if (!blob) return null;
+    const url = URL.createObjectURL(blob);
+    objUrls[asset] = url; imgUrls.push(url);
+    return url;
+  }
+
+  /* 画像レイヤーの描画 */
+  function renderImages(pv) {
+    pv.img.innerHTML = '';
+    if (!nb || !nb.pages.length) return;
+    const editing = (tool === 'image');
+    imagesOf(pv.idx).forEach((im, idx) => {
+      const box = document.createElement('div');
+      box.className = 'imgbox' + (editing ? ' editing' : '') +
+        (selImg && selImg.pv === pv && selImg.idx === idx ? ' selected' : '');
+      box.dataset.idx = idx;
+      box.style.left = (im.x / pv.baseW * 100) + '%';
+      box.style.top = (im.y / pv.baseH * 100) + '%';
+      box.style.width = (im.w / pv.baseW * 100) + '%';
+      box.style.height = (im.h / pv.baseH * 100) + '%';
+      const el = document.createElement('img');
+      el.alt = ''; el.draggable = false;
+      imageUrl(im.asset).then(u => { if (u) el.src = u; });
+      box.appendChild(el);
+      if (editing) {
+        const del = document.createElement('button'); del.className = 'ib-del'; del.textContent = '×'; del.title = '削除';
+        const rs = document.createElement('button'); rs.className = 'ib-resize'; rs.title = 'ドラッグで大きさ変更';
+        box.append(del, rs);
+        box.addEventListener('pointerdown', (e) => {
+          if (e.target === del || e.target === rs) return;
+          startImgDrag(e, pv, idx, 'move', box);
+        });
+        del.addEventListener('pointerdown', (e) => e.stopPropagation());
+        del.addEventListener('click', (e) => {
+          e.stopPropagation(); pushUndo(pv.idx);
+          imagesOf(pv.idx).splice(idx, 1); selImg = null; renderImages(pv); markDirty();
+        });
+        rs.addEventListener('pointerdown', (e) => startImgDrag(e, pv, idx, 'resize', box));
+      }
+      pv.img.appendChild(box);
+    });
+  }
+
+  /* 画像の移動・サイズ変更（縦横比は保つ） */
+  let imgDrag = null;
+  function startImgDrag(e, pv, idx, mode, box) {
+    e.preventDefault(); e.stopPropagation();
+    const im = imagesOf(pv.idx)[idx]; if (!im) return;
+    selImg = { pv, idx };
+    pv.img.querySelectorAll('.imgbox').forEach(b => b.classList.toggle('selected', +b.dataset.idx === idx));
+    pushUndo(pv.idx);
+    imgDrag = { pv, idx, mode, box, startX: e.clientX, startY: e.clientY, x0: im.x, y0: im.y, w0: im.w, h0: im.h };
+    try { box.setPointerCapture(e.pointerId); } catch (err) {}
+    document.addEventListener('pointermove', onImgDragMove);
+    document.addEventListener('pointerup', endImgDrag);
+  }
+  function onImgDragMove(e) {
+    if (!imgDrag) return;
+    const { pv, idx, mode, box } = imgDrag;
+    const im = imagesOf(pv.idx)[idx]; if (!im) return;
+    const dx = (e.clientX - imgDrag.startX) / pv.scale, dy = (e.clientY - imgDrag.startY) / pv.scale;
+    if (mode === 'move') {
+      im.x = Math.max(-im.w / 2, Math.min(pv.baseW - im.w / 2, imgDrag.x0 + dx));
+      im.y = Math.max(-im.h / 2, Math.min(pv.baseH - im.h / 2, imgDrag.y0 + dy));
+      box.style.left = (im.x / pv.baseW * 100) + '%';
+      box.style.top = (im.y / pv.baseH * 100) + '%';
+    } else {
+      const ratio = imgDrag.h0 / imgDrag.w0;
+      const w = Math.max(30, imgDrag.w0 + dx);
+      im.w = w; im.h = w * ratio;                       // 縦横比を保つ
+      box.style.width = (im.w / pv.baseW * 100) + '%';
+      box.style.height = (im.h / pv.baseH * 100) + '%';
+    }
+  }
+  function endImgDrag() {
+    if (!imgDrag) return;
+    document.removeEventListener('pointermove', onImgDragMove);
+    document.removeEventListener('pointerup', endImgDrag);
+    imgDrag = null; markDirty();
+  }
+
+  /* 画像をいまのページに置く（読み込んだ画像ファイルから） */
+  async function placeImageOnPage(file) {
+    if (!nb || !nb.pages.length) { PN.ui.toast('先にPDFか画像のページを追加してください'); return; }
+    const pv = pageViews[currentIdx]; if (!pv) return;
+    PN.ui.busy(true, '画像を読み込み中…');
+    try {
+      const ext = (file.name && file.name.match(/\.(png|jpe?g|webp)$/i) || [, 'png'])[1].toLowerCase();
+      const asset = await PN.storage.addAsset(nb.id, file, ext);
+      const url = URL.createObjectURL(file); imgUrls.push(url);
+      objUrls[asset] = url;
+      const img = await loadImg(url);
+      // ページ幅の半分くらいの大きさで、見えている位置の中央に置く
+      const targetW = Math.min(pv.baseW * 0.5, img.naturalWidth);
+      const ratio = img.naturalHeight / img.naturalWidth;
+      const w = targetW, h = targetW * ratio;
+      const c = visibleCenterOf(pv);
+      pushUndo(pv.idx);
+      imagesOf(pv.idx).push({
+        id: 'im-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+        asset, x: Math.max(0, c.x - w / 2), y: Math.max(0, c.y - h / 2), w, h
+      });
+      selImg = { pv, idx: imagesOf(pv.idx).length - 1 };
+      setTool('image');
+      renderImages(pv);
+      markDirty();
+      PN.ui.toast('画像を置きました。ドラッグで移動、右下で大きさ変更');
+    } catch (e) {
+      console.error(e); PN.ui.toast('画像を読み込めませんでした');
+    }
+    PN.ui.busy(false);
+  }
+
+  /* いま画面に見えているページ内の中心（ページ座標） */
+  function visibleCenterOf(pv) {
+    const sr = elScroller.getBoundingClientRect(), r = pv.el.getBoundingClientRect();
+    const cx = Math.min(Math.max(sr.left + sr.width / 2, r.left), r.right);
+    const cy = Math.min(Math.max(sr.top + sr.height / 2, r.top), r.bottom);
+    return { x: (cx - r.left) / pv.scale, y: (cy - r.top) / pv.scale };
+  }
+
+  /* ---- カメラで撮る ---- */
+  async function captureFromCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      PN.ui.toast('このブラウザではカメラを使えません'); return;
+    }
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    } catch (e) {
+      PN.ui.toast(e && e.name === 'NotAllowedError' ? 'カメラの使用が許可されませんでした' : 'カメラを起動できませんでした');
+      return;
+    }
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.innerHTML = `
+      <div class="modal cam-modal">
+        <h3>カメラで撮る</h3>
+        <div class="cam-wrap"><video id="cam-video" autoplay playsinline muted></video></div>
+        <div class="modal-foot">
+          <button class="bar-btn ghost" data-act="cancel">やめる</button>
+          <button class="bar-btn primary" data-act="shot">📷 撮影する</button>
+        </div>
+      </div>`;
+    document.getElementById('modal-root').appendChild(back);
+    const video = back.querySelector('#cam-video');
+    video.srcObject = stream;
+    const close = () => { try { stream.getTracks().forEach(t => t.stop()); } catch (e) {} back.remove(); };
+    back.addEventListener('click', async (e) => {
+      const act = e.target.getAttribute('data-act');
+      if (e.target === back || act === 'cancel') { close(); return; }
+      if (act === 'shot') {
+        const cv = document.createElement('canvas');
+        cv.width = video.videoWidth || 1280; cv.height = video.videoHeight || 720;
+        cv.getContext('2d').drawImage(video, 0, 0, cv.width, cv.height);
+        close();
+        const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.9));
+        if (blob) { blob.name = 'photo.jpg'; await placeImageOnPage(blob); }
+      }
+    });
+  }
+
+  /* 「画像」ボタンのメニュー */
+  function imageMenu(anchor) {
+    PN.ui.menu(anchor, [
+      { label: '🖼 写真を選ぶ', onClick: () => PN.app.pickImageForPage() },
+      { label: '📷 カメラで撮る', onClick: captureFromCamera }
+    ]);
   }
 
   /* ========== 文字入れ（テキストボックス） ========== */
@@ -471,6 +659,29 @@ PN.editor = (function () {
     $('#text-load-fonts').addEventListener('click', loadLocalFonts);
     $('#text-delete').addEventListener('click', deleteSelectedText);
     syncTextControls();
+  }
+
+  /* 投げ縄パネルの結線 */
+  function buildLassoControls() {
+    document.querySelectorAll('#grp-lasso [data-kind]').forEach(cb => {
+      cb.checked = lassoPick[cb.dataset.kind];
+      cb.addEventListener('change', () => { lassoPick[cb.dataset.kind] = cb.checked; });
+    });
+    $('#lasso-cut').addEventListener('click', () => copySelection(true));
+    $('#lasso-copy').addEventListener('click', () => copySelection(false));
+    $('#lasso-paste').addEventListener('click', pasteClipboard);
+    $('#lasso-dup').addEventListener('click', duplicateSelection);
+    $('#lasso-delete').addEventListener('click', () => deleteSelection(false));
+    const cs = $('#lasso-colors');
+    if (cs && !cs.children.length) {
+      COLORS.forEach((c) => {
+        const b = document.createElement('span');
+        b.className = 'color-swatch'; b.style.background = c; b.dataset.color = c;
+        b.addEventListener('click', () => recolorSelection(c));
+        cs.appendChild(b);
+      });
+    }
+    updateLassoButtons();
   }
 
   /* 書式パネルの表示を、いまの設定（または選択中のボックス）に合わせる */
@@ -652,6 +863,243 @@ PN.editor = (function () {
     if (el) setTimeout(() => el.focus(), 0);
   }
 
+  /* ========== 投げ縄（なげなわ選択） ========== */
+
+  /* どの種類を選ぶか（1つずつ切り替えられる） */
+  const lassoPick = { strokes: true, images: true, texts: true, masks: true };
+  let lassoPath = null;      // 描いている最中の囲み線
+  let lassoSel = null;       // { pv, items:{strokes:[],images:[],texts:[],masks:[]}, box:{x,y,w,h} }
+  let clipboard = null;      // コピー／カットしたもの
+
+  const KINDS = ['strokes', 'images', 'texts', 'masks'];
+
+  function pointInPoly(x, y, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-9) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  /* 物の「代表点」が囲みの中にあるかで判定する */
+  function boxInPoly(o, poly) {
+    const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
+    if (!pointInPoly(cx, cy, poly)) return false;
+    // 四隅のうち3つ以上入っていれば「囲まれた」とみなす
+    const corners = [[o.x, o.y], [o.x + o.w, o.y], [o.x, o.y + o.h], [o.x + o.w, o.y + o.h]];
+    return corners.filter(c => pointInPoly(c[0], c[1], poly)).length >= 3;
+  }
+  function strokeInPoly(s, poly) {
+    const pts = s.points || []; if (!pts.length) return false;
+    let inside = 0;
+    pts.forEach(p => { if (pointInPoly(p[0], p[1], poly)) inside++; });
+    return inside / pts.length >= 0.6;      // 6割以上入っていれば選択
+  }
+
+  function selectionBox(pv, items) {
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    const add = (ax, ay, bx, by) => { x1 = Math.min(x1, ax); y1 = Math.min(y1, ay); x2 = Math.max(x2, bx); y2 = Math.max(y2, by); };
+    const ann = annOf(pv.idx);
+    items.strokes.forEach(i => (ann.strokes[i].points || []).forEach(p => add(p[0], p[1], p[0], p[1])));
+    ['images', 'texts', 'masks'].forEach(k => items[k].forEach(i => { const o = ann[k][i]; add(o.x, o.y, o.x + o.w, o.y + o.h); }));
+    if (!isFinite(x1)) return null;
+    const pad = 6;
+    return { x: x1 - pad, y: y1 - pad, w: (x2 - x1) + pad * 2, h: (y2 - y1) + pad * 2 };
+  }
+  const selCount = (items) => KINDS.reduce((n, k) => n + items[k].length, 0);
+
+  /* 囲み終わったら中身を判定して選択する */
+  function finishLasso(pv, poly) {
+    const ann = annOf(pv.idx);
+    const items = { strokes: [], images: [], texts: [], masks: [] };
+    if (lassoPick.strokes) ann.strokes.forEach((s, i) => { if (strokeInPoly(s, poly)) items.strokes.push(i); });
+    if (lassoPick.images) ann.images.forEach((o, i) => { if (boxInPoly(o, poly)) items.images.push(i); });
+    if (lassoPick.texts) ann.texts.forEach((o, i) => { if (boxInPoly(o, poly)) items.texts.push(i); });
+    if (lassoPick.masks) ann.masks.forEach((o, i) => { if (boxInPoly(o, poly)) items.masks.push(i); });
+    if (!selCount(items)) { clearLasso(); PN.ui.toast('囲みの中に選べるものがありませんでした'); return; }
+    lassoSel = { pv, items, box: selectionBox(pv, items) };
+    renderLasso();
+  }
+  function clearLasso() { lassoSel = null; renderLasso(); }
+
+  /* 囲んでいる最中の線を描く */
+  function drawLassoPath(pv, poly) {
+    clearCtx(pv.live, pv.livectx);
+    const ctx = pv.livectx;
+    ctx.save();
+    ctx.strokeStyle = '#3d8bfd'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(poly[0][0] * pv.scale, poly[0][1] * pv.scale);
+    for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i][0] * pv.scale, poly[i][1] * pv.scale);
+    ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = 'rgba(61,139,253,.10)'; ctx.fill();
+    ctx.restore();
+  }
+
+  /* 選択枠と操作メニューを表示 */
+  function renderLasso() {
+    document.querySelectorAll('.lasso-sel').forEach(e => e.remove());
+    updateLassoButtons();
+    if (!lassoSel) return;
+    const { pv, box } = lassoSel;
+    const el = document.createElement('div');
+    el.className = 'lasso-sel';
+    el.style.left = (box.x / pv.baseW * 100) + '%';
+    el.style.top = (box.y / pv.baseH * 100) + '%';
+    el.style.width = (box.w / pv.baseW * 100) + '%';
+    el.style.height = (box.h / pv.baseH * 100) + '%';
+    const rs = document.createElement('button'); rs.className = 'ls-resize'; rs.title = 'ドラッグで拡大・縮小';
+    el.appendChild(rs);
+    el.addEventListener('pointerdown', (e) => { if (e.target !== rs) startLassoDrag(e, 'move'); });
+    rs.addEventListener('pointerdown', (e) => startLassoDrag(e, 'resize'));
+    pv.text.appendChild(el);       // 文字レイヤーの上に重ねて表示
+    pv.text.style.pointerEvents = 'auto';
+  }
+
+  /* 選択したものをまとめて動かす／拡大縮小する */
+  let lassoDrag = null;
+  function startLassoDrag(e, mode) {
+    if (!lassoSel) return;
+    e.preventDefault(); e.stopPropagation();
+    pushUndo(lassoSel.pv.idx);
+    lassoDrag = { mode, startX: e.clientX, startY: e.clientY, box0: Object.assign({}, lassoSel.box), snap: snapshotSelection() };
+    document.addEventListener('pointermove', onLassoDragMove);
+    document.addEventListener('pointerup', endLassoDrag);
+  }
+  function snapshotSelection() {
+    const ann = annOf(lassoSel.pv.idx), out = {};
+    out.strokes = lassoSel.items.strokes.map(i => JSON.parse(JSON.stringify(ann.strokes[i].points)));
+    ['images', 'texts', 'masks'].forEach(k => {
+      out[k] = lassoSel.items[k].map(i => { const o = ann[k][i]; return { x: o.x, y: o.y, w: o.w, h: o.h, size: o.size }; });
+    });
+    return out;
+  }
+  function onLassoDragMove(e) {
+    if (!lassoDrag || !lassoSel) return;
+    const pv = lassoSel.pv, ann = annOf(pv.idx), b0 = lassoDrag.box0, s = lassoDrag.snap;
+    const dx = (e.clientX - lassoDrag.startX) / pv.scale, dy = (e.clientY - lassoDrag.startY) / pv.scale;
+    if (lassoDrag.mode === 'move') {
+      lassoSel.items.strokes.forEach((idx, n) => {
+        ann.strokes[idx].points = s.strokes[n].map(p => [p[0] + dx, p[1] + dy, p[2]]);
+      });
+      ['images', 'texts', 'masks'].forEach(k => lassoSel.items[k].forEach((idx, n) => {
+        ann[k][idx].x = s[k][n].x + dx; ann[k][idx].y = s[k][n].y + dy;
+      }));
+      lassoSel.box = { x: b0.x + dx, y: b0.y + dy, w: b0.w, h: b0.h };
+    } else {
+      const f = Math.max(0.15, Math.min(6, (b0.w + dx) / b0.w));   // 左上を固定して拡大縮小
+      const ox = b0.x, oy = b0.y;
+      lassoSel.items.strokes.forEach((idx, n) => {
+        ann.strokes[idx].points = s.strokes[n].map(p => [ox + (p[0] - ox) * f, oy + (p[1] - oy) * f, p[2]]);
+      });
+      ['images', 'texts', 'masks'].forEach(k => lassoSel.items[k].forEach((idx, n) => {
+        const o = ann[k][idx], q = s[k][n];
+        o.x = ox + (q.x - ox) * f; o.y = oy + (q.y - oy) * f;
+        o.w = q.w * f; o.h = q.h * f;
+        if (k === 'texts' && q.size) o.size = Math.max(6, q.size * f);
+      }));
+      lassoSel.box = { x: ox, y: oy, w: b0.w * f, h: b0.h * f };
+    }
+    redrawSelPage(); renderLasso();
+  }
+  function endLassoDrag() {
+    if (!lassoDrag) return;
+    document.removeEventListener('pointermove', onLassoDragMove);
+    document.removeEventListener('pointerup', endLassoDrag);
+    lassoDrag = null; markDirty();
+  }
+  function redrawSelPage() {
+    if (!lassoSel) return;
+    const pv = lassoSel.pv;
+    renderInk(pv); renderImages(pv); renderTexts(pv); renderMasks(pv);
+  }
+
+  /* ---- 削除・コピー・カット・複製・色 ---- */
+  function copySelection(cut) {
+    if (!lassoSel) return;
+    const ann = annOf(lassoSel.pv.idx), box = lassoSel.box;
+    const data = { box: Object.assign({}, box), strokes: [], images: [], texts: [], masks: [] };
+    lassoSel.items.strokes.forEach(i => data.strokes.push(JSON.parse(JSON.stringify(ann.strokes[i]))));
+    ['images', 'texts', 'masks'].forEach(k => lassoSel.items[k].forEach(i => data[k].push(JSON.parse(JSON.stringify(ann[k][i])))));
+    clipboard = data;
+    if (cut) deleteSelection(true);
+    else { PN.ui.toast(selCount(lassoSel.items) + ' 個をコピーしました'); updateLassoButtons(); }
+  }
+  function deleteSelection(quiet) {
+    if (!lassoSel) return;
+    const pv = lassoSel.pv, ann = annOf(pv.idx);
+    pushUndo(pv.idx);
+    KINDS.forEach(k => {
+      lassoSel.items[k].slice().sort((a, b) => b - a).forEach(i => ann[k].splice(i, 1));
+    });
+    const n = selCount(lassoSel.items);
+    clearLasso(); redrawSelPage(); markDirty();
+    if (!quiet) PN.ui.toast(n + ' 個を削除しました');
+    else PN.ui.toast(n + ' 個をカットしました');
+  }
+  function duplicateSelection() {
+    if (!lassoSel) return;
+    const pv = lassoSel.pv, ann = annOf(pv.idx), d = 24;
+    pushUndo(pv.idx);
+    const added = { strokes: [], images: [], texts: [], masks: [] };
+    lassoSel.items.strokes.forEach(i => {
+      const s = JSON.parse(JSON.stringify(ann.strokes[i]));
+      s.points = s.points.map(p => [p[0] + d, p[1] + d, p[2]]);
+      ann.strokes.push(s); added.strokes.push(ann.strokes.length - 1);
+    });
+    ['images', 'texts', 'masks'].forEach(k => lassoSel.items[k].forEach(i => {
+      const o = JSON.parse(JSON.stringify(ann[k][i]));
+      o.x += d; o.y += d; if (o.id) o.id = o.id + '-c' + Math.random().toString(36).slice(2, 6);
+      ann[k].push(o); added[k].push(ann[k].length - 1);
+    }));
+    lassoSel = { pv, items: added, box: selectionBox(pv, added) };
+    redrawSelPage(); renderLasso(); markDirty();
+    PN.ui.toast('複製しました');
+  }
+  function pasteClipboard() {
+    if (!clipboard) { PN.ui.toast('コピーされたものがありません'); return; }
+    const pv = pageViews[currentIdx]; if (!pv) return;
+    const ann = annOf(pv.idx);
+    const same = lassoSel && lassoSel.pv === pv;
+    const d = same ? 24 : 0;
+    pushUndo(pv.idx);
+    const added = { strokes: [], images: [], texts: [], masks: [] };
+    clipboard.strokes.forEach(s0 => {
+      const s = JSON.parse(JSON.stringify(s0));
+      s.points = s.points.map(p => [p[0] + d, p[1] + d, p[2]]);
+      ann.strokes.push(s); added.strokes.push(ann.strokes.length - 1);
+    });
+    ['images', 'texts', 'masks'].forEach(k => clipboard[k].forEach(o0 => {
+      const o = JSON.parse(JSON.stringify(o0));
+      o.x = Math.max(0, Math.min(pv.baseW - 10, o.x + d));
+      o.y = Math.max(0, Math.min(pv.baseH - 10, o.y + d));
+      if (o.id) o.id = o.id + '-p' + Math.random().toString(36).slice(2, 6);
+      ann[k].push(o); added[k].push(ann[k].length - 1);
+    }));
+    setTool('lasso');
+    lassoSel = { pv, items: added, box: selectionBox(pv, added) };
+    redrawSelPage(); renderLasso(); markDirty();
+    PN.ui.toast('貼り付けました');
+  }
+  function recolorSelection(c) {
+    if (!lassoSel) return;
+    const ann = annOf(lassoSel.pv.idx);
+    pushUndo(lassoSel.pv.idx);
+    lassoSel.items.strokes.forEach(i => { ann.strokes[i].color = c; });
+    lassoSel.items.texts.forEach(i => { ann.texts[i].color = c; });
+    redrawSelPage(); renderLasso(); markDirty();
+  }
+
+  /* 投げ縄パネルのボタンの有効・無効 */
+  function updateLassoButtons() {
+    const has = !!lassoSel;
+    ['lasso-delete', 'lasso-copy', 'lasso-cut', 'lasso-dup'].forEach(id => {
+      const b = $('#' + id); if (b) b.disabled = !has;
+    });
+    const p = $('#lasso-paste'); if (p) p.disabled = !clipboard;
+    const cg = $('#lasso-colors'); if (cg) cg.style.opacity = has ? '1' : '.4';
+  }
+
   /* ---------- 入力 ---------- */
   function wirePV(pv) {
     pv.live.addEventListener('pointerdown', (e) => onDown(e, pv));
@@ -680,6 +1128,11 @@ PN.editor = (function () {
     const [x, y] = toIntrinsic(e, pv);
     const common = { pv, pointerId: e.pointerId, downX: e.clientX, downY: e.clientY, downT: Date.now() };
     if (tool === 'pan') { gesture = Object.assign(common, { type: 'pan', sx: e.clientX, sy: e.clientY, l: elScroller.scrollLeft, t: elScroller.scrollTop }); return; }
+    if (tool === 'lasso') {
+      clearLasso();
+      gesture = Object.assign(common, { type: 'lasso', poly: [[x, y]] });
+      return;
+    }
     if (tool === 'eraser') { gesture = Object.assign(common, { type: 'erase', before: structuredClone(annOf(pv.idx)), changed: false }); eraseAt(pv, x, y); return; }
     const p = (e.pressure && e.pressure > 0) ? e.pressure : (e.pointerType === 'pen' ? 0 : 0.5);
     gesture = Object.assign(common, { type: tool, color, width: WIDTHS[widthIdx], points: [[x, y, p]] });
@@ -688,6 +1141,12 @@ PN.editor = (function () {
     if (!gesture || gesture.pv !== pv) return;
     if (gesture.type === 'pan') { elScroller.scrollLeft = gesture.l - (e.clientX - gesture.sx); elScroller.scrollTop = gesture.t - (e.clientY - gesture.sy); return; }
     if (gesture.type === 'erase') { const [x, y] = toIntrinsic(e, pv); eraseAt(pv, x, y); return; }
+    if (gesture.type === 'lasso') {
+      const [x, y] = toIntrinsic(e, pv);
+      gesture.poly.push([x, y]);
+      drawLassoPath(pv, gesture.poly);
+      return;
+    }
     if (gesture.type === 'pen') {
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       evs.forEach(ev => { const [x, y] = toIntrinsic(ev, pv); const p = (ev.pressure && ev.pressure > 0) ? ev.pressure : 0.5; gesture.points.push([x, y, p]); });
@@ -712,6 +1171,11 @@ PN.editor = (function () {
     try { pv.live.releasePointerCapture(e.pointerId); } catch (err) {}
     const g = gesture; gesture = null; liveDrawnUpTo = 0;
     if (g.type === 'pan') return;
+    if (g.type === 'lasso') {
+      clearCtx(pv.live, pv.livectx);
+      if (g.poly.length >= 3) finishLasso(pv, g.poly);
+      return;
+    }
     if (g.type === 'erase') { if (g.changed) { pushUndoSnap(pv.idx, g.before); markDirty(); } return; }
     if (g.type === 'line' && g.points.length < 2) { clearCtx(pv.live, pv.livectx); return; }
     if (g.points.length) {
@@ -787,7 +1251,7 @@ PN.editor = (function () {
     const e = undoStack.pop();
     redoStack.push({ idx: e.idx, before: structuredClone(annOf(e.idx)) });
     nb.pages[e.idx].annotations = e.before;
-    const pv = pageViews[e.idx]; if (pv) { renderInk(pv); renderMasks(pv); renderTexts(pv); }
+    const pv = pageViews[e.idx]; if (pv) { renderInk(pv); renderMasks(pv); renderTexts(pv); renderImages(pv); }
     markDirty();
   }
   function redo() {
@@ -795,7 +1259,7 @@ PN.editor = (function () {
     const e = redoStack.pop();
     undoStack.push({ idx: e.idx, before: structuredClone(annOf(e.idx)) });
     nb.pages[e.idx].annotations = e.before;
-    const pv = pageViews[e.idx]; if (pv) { renderInk(pv); renderMasks(pv); renderTexts(pv); }
+    const pv = pageViews[e.idx]; if (pv) { renderInk(pv); renderMasks(pv); renderTexts(pv); renderImages(pv); }
     markDirty();
   }
 
@@ -1062,8 +1526,8 @@ PN.editor = (function () {
   }
   async function clearPageInk() {
     if (!(await PN.ui.confirm('今表示しているページの書き込み（線・かくす枠）をすべて消します。よろしいですか？', { danger: true, ok: '消す' }))) return;
-    pushUndo(currentIdx); nb.pages[currentIdx].annotations = { strokes: [], masks: [], texts: [] };
-    const pv = pageViews[currentIdx]; if (pv) { renderInk(pv); renderMasks(pv); renderTexts(pv); } markDirty();
+    pushUndo(currentIdx); nb.pages[currentIdx].annotations = { strokes: [], masks: [], texts: [], images: [] };
+    const pv = pageViews[currentIdx]; if (pv) { renderInk(pv); renderMasks(pv); renderTexts(pv); renderImages(pv); } markDirty();
   }
   async function deletePage() {
     if (!(await PN.ui.confirm('今表示しているページを削除します。元に戻せません。よろしいですか？', { danger: true, ok: '削除' }))) return;
@@ -1125,7 +1589,15 @@ PN.editor = (function () {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     }
     const ann = def.annotations || {};
-    // 背景 → 書き込み → 入れた文字 → かくす枠（上に重ねて答えを隠す）の順
+    // 背景 → 置いた画像 → 書き込み → 入れた文字 → かくす枠（上に重ねて答えを隠す）の順
+    if (ann.images) {
+      for (const im of ann.images) {
+        try {
+          const el = await getImage(im.asset);
+          ctx.drawImage(el, im.x * scale, im.y * scale, im.w * scale, im.h * scale);
+        } catch (e) { /* 画像が見つからないときは飛ばす */ }
+      }
+    }
     if (wantInk && ann.strokes) ann.strokes.forEach(s => composeStroke(ctx, s, scale, canvas.width));
     if (ann.texts) ann.texts.forEach(t => composeText(ctx, t, scale));
     if (wantMasks && ann.masks) ann.masks.forEach(m => { ctx.fillStyle = m.color || '#c0392b'; ctx.fillRect(m.x * scale, m.y * scale, m.w * scale, m.h * scale); });
@@ -1279,16 +1751,21 @@ PN.editor = (function () {
     const ctrl = e.ctrlKey || e.metaKey;
     if (ctrl && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (ctrl && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+    if (ctrl && e.key.toLowerCase() === 'c' && lassoSel) { e.preventDefault(); copySelection(false); return; }
+    if (ctrl && e.key.toLowerCase() === 'x' && lassoSel) { e.preventDefault(); copySelection(true); return; }
+    if (ctrl && e.key.toLowerCase() === 'v' && clipboard) { e.preventDefault(); pasteClipboard(); return; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && lassoSel) { e.preventDefault(); deleteSelection(false); return; }
+    if (e.key === 'Escape' && lassoSel) { e.preventDefault(); clearLasso(); return; }
     if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); goPage(currentIdx + 1); }
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); goPage(currentIdx - 1); }
     else if (e.key === 'Escape' && immersive) { exitImmersive(); }
-    else { const map = { '1': 'pen', '2': 'line', '3': 'eraser', '4': 'text', '5': 'mask', '6': 'reveal', '7': 'pan' }; if (map[e.key]) setTool(map[e.key]); }
+    else { const map = { '1': 'pen', '2': 'line', '3': 'eraser', '4': 'text', '5': 'lasso', '6': 'mask', '7': 'reveal', '8': 'pan' }; if (map[e.key]) setTool(map[e.key]); }
   }
 
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
   return {
-    init, open, close, flushSave, addFiles,
+    init, open, close, flushSave, addFiles, placeImage: placeImageOnPage,
     getPages, getCurrentIndex, gotoPageId, composePage,
     reorderPages, deletePagesByIds, duplicatePagesByIds, exportPagesToPdf
   };

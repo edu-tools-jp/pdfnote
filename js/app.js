@@ -5,7 +5,7 @@ PN.app = (function () {
   const $ = (s) => document.querySelector(s);
   let restoreHandle = null;
 
-  const APP_VERSION = '20260825c';   // 表示用（service-worker.js の VERSION と揃える）
+  const APP_VERSION = '20260825d';   // 表示用（service-worker.js の VERSION と揃える）
   let swReg = null, waitingWorker = null, swReloading = false;
 
   function showOnly(id) {
@@ -165,7 +165,14 @@ PN.app = (function () {
       e.target.value = '';
       if (files.length) await PN.editor.addFiles(files, pendingAddPosition);
     });
+    // ページの上に置く画像（写真を選ぶ）
+    $('#image-input').addEventListener('change', async (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (f) await PN.editor.placeImage(f);
+    });
   }
+  function pickImageForPage() { $('#image-input').click(); }
 
   /* ---- 画面遷移 ---- */
   function showLibrary() { showOnly('#screen-library'); PN.library.show(); }
@@ -202,7 +209,7 @@ PN.app = (function () {
     $('#file-input').click();
   }
 
-  return { boot, showLibrary, openEditor, backToLibrary, pickFilesForCurrentNotebook };
+  return { boot, showLibrary, openEditor, backToLibrary, pickFilesForCurrentNotebook, pickImageForPage };
 })();
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', PN.app.boot);

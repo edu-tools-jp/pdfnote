@@ -81,6 +81,8 @@
         <button class="tool-btn" data-tool="line" title="直線">📏<small>直線</small></button>
         <button class="tool-btn" data-tool="eraser" title="消しゴム">🧽<small>消す</small></button>
         <button class="tool-btn" data-tool="text" title="キーボードで文字を入れる">🅣<small>文字</small></button>
+        <button class="tool-btn" data-tool="lasso" title="投げ縄で囲んで選ぶ">⭕<small>投げ縄</small></button>
+        <button id="ed-image" class="tool-btn" title="写真を入れる／カメラで撮る">🖼<small>画像</small></button>
         <button class="tool-btn" data-tool="mask" title="答えを隠す枠をつくる">🟥<small>かくす枠</small></button>
         <button class="tool-btn" data-tool="reveal" title="授業中：タッチで答えを開く／閉じる">👆<small>めくり</small></button>
         <button class="tool-btn" data-tool="pan" title="拡大中に動かす">✋<small>移動</small></button>
@@ -112,6 +114,21 @@
         <button id="text-delete" class="bar-btn" title="選択中の文字を削除" disabled>🗑</button>
       </div>
 
+      <div id="grp-lasso" class="tool-group" role="group" aria-label="投げ縄" hidden>
+        <span class="lasso-pick" title="囲んだときに選ぶ種類">
+          <label><input type="checkbox" data-kind="strokes" checked> 手書き</label>
+          <label><input type="checkbox" data-kind="images" checked> 画像</label>
+          <label><input type="checkbox" data-kind="texts" checked> 文字</label>
+          <label><input type="checkbox" data-kind="masks" checked> かくす枠</label>
+        </span>
+        <button id="lasso-cut" class="bar-btn" title="カット" disabled>✂ カット</button>
+        <button id="lasso-copy" class="bar-btn" title="コピー" disabled>⧉ コピー</button>
+        <button id="lasso-paste" class="bar-btn" title="貼り付け" disabled>📋 貼り付け</button>
+        <button id="lasso-dup" class="bar-btn" title="複製" disabled>⧉＋ 複製</button>
+        <button id="lasso-delete" class="bar-btn" title="削除" disabled style="color:var(--danger)">🗑 削除</button>
+        <span class="colors" id="lasso-colors" title="選んだものの色を変える"></span>
+      </div>
+
       <div class="tool-group">
         <button id="ed-undo" class="bar-btn" title="もとにもどす">↶</button>
         <button id="ed-redo" class="bar-btn" title="やり直す">↷</button>
@@ -137,7 +154,7 @@
       <button id="ed-add-page" class="bar-btn ghost" title="PDF・画像を追加">＋ページ</button>
       <button id="ed-page-menu" class="bar-btn ghost" title="ページの操作">⋯</button>
       <span id="ed-save-state" class="save-state"></span>
-      <span class="build-stamp" title="アプリのバージョン">20260825c</span>
+      <span class="build-stamp" title="アプリのバージョン">20260825d</span>
     </div>
   </header>
 
@@ -183,6 +200,7 @@
 
 <!-- 隠しファイル入力 -->
 <input id="file-input" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" multiple hidden>
+<input id="image-input" type="file" accept="image/png,image/jpeg,image/webp" hidden>
 
 <!-- モーダル/トースト -->
 <div id="modal-root"></div>
