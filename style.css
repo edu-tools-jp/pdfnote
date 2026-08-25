@@ -241,6 +241,7 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 /* ---------- 投げ縄の選択枠 ---------- */
 .lasso-sel{
   position:absolute; box-sizing:border-box; z-index:6;
+  pointer-events:auto;      /* 枠だけ操作を受け取る（枠の外のタップは下の投げ縄に通す） */
   border:2px dashed var(--accent); background:rgba(61,139,253,.10);
   cursor:move; touch-action:none; border-radius:3px;
 }

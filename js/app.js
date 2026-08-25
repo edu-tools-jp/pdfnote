@@ -5,7 +5,7 @@ PN.app = (function () {
   const $ = (s) => document.querySelector(s);
   let restoreHandle = null;
 
-  const APP_VERSION = '20260825d';   // 表示用（service-worker.js の VERSION と揃える）
+  const APP_VERSION = '20260825e';   // 表示用（service-worker.js の VERSION と揃える）
   let swReg = null, waitingWorker = null, swReloading = false;
 
   function showOnly(id) {
@@ -95,6 +95,8 @@ PN.app = (function () {
     if (upd) { upd.hidden = false; upd.title = '最新版に更新する（現在 ' + APP_VERSION + '）'; }
     try {
       swReg = await navigator.serviceWorker.register('service-worker.js');
+      // ブラウザの設定や学校のポリシーで Service Worker が使えないことがある
+      if (!swReg) { if (upd) upd.title = 'オフライン機能を有効にできませんでした'; return; }
       if (swReg.waiting && navigator.serviceWorker.controller) markUpdateReady(swReg.waiting);
       swReg.addEventListener('updatefound', () => {
         const nw = swReg.installing;

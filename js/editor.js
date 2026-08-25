@@ -126,7 +126,7 @@ PN.editor = (function () {
     if (t !== 'image') selImg = null;
     if (t !== 'lasso') clearLasso();
     pageViews.forEach(pv => { renderTexts(pv); renderImages(pv); });
-    // 1本指が書き込みに使われる道具（ペン・直線・消す・かくす枠）のときだけ案内を出す
+    // 1本指が書き込みに使われる道具（ペン・直線・消す・目かくし）のときだけ案内を出す
     const showHint = ['pen', 'line', 'eraser', 'mask'].includes(t);
     const hint = $('#ed-swipe-hint');
     if (hint) hint.hidden = !showHint;
@@ -214,7 +214,7 @@ PN.editor = (function () {
       const text = document.createElement('div'); text.className = 'layer text-layer pv-text';
       const mask = document.createElement('div'); mask.className = 'layer mask-layer pv-mask';
       const num = document.createElement('div'); num.className = 'pv-num'; num.textContent = (i + 1);
-      // 画像は手書きより下、文字はマスクより下（＝かくす枠で答えの文字も隠せる）
+      // 画像は手書きより下、文字はマスクより下（＝目かくしで答えの文字も隠せる）
       el.append(bg, img, ink, live, text, mask, num);
       elPages.appendChild(el);
       const pv = {
@@ -253,7 +253,7 @@ PN.editor = (function () {
     computeBase();
     pageViews.forEach(pv => {
       layoutPV(pv); pv.rendered = false;
-      // 書き込み（線・かくす枠）はここで同期的に描き直す。
+      // 書き込み（線・目かくし）はここで同期的に描き直す。
       // 背景の再描画（非同期）を待つと、その間だけ線が消えてしまうため。
       if (!pv.freed) { renderInk(pv); renderMasks(pv); renderTexts(pv); renderImages(pv); }
     });
@@ -663,9 +663,10 @@ PN.editor = (function () {
 
   /* 投げ縄パネルの結線 */
   function buildLassoControls() {
+    loadLassoPick();      // 前回の「選ぶ種類」を復元する
     document.querySelectorAll('#grp-lasso [data-kind]').forEach(cb => {
       cb.checked = lassoPick[cb.dataset.kind];
-      cb.addEventListener('change', () => { lassoPick[cb.dataset.kind] = cb.checked; });
+      cb.addEventListener('change', () => { lassoPick[cb.dataset.kind] = cb.checked; saveLassoPick(); });
     });
     $('#lasso-cut').addEventListener('click', () => copySelection(true));
     $('#lasso-copy').addEventListener('click', () => copySelection(false));
@@ -867,6 +868,16 @@ PN.editor = (function () {
 
   /* どの種類を選ぶか（1つずつ切り替えられる） */
   const lassoPick = { strokes: true, images: true, texts: true, masks: true };
+  const LASSO_PICK_KEY = 'pdfnote.lassoPick';
+  function loadLassoPick() {
+    try {
+      const v = JSON.parse(localStorage.getItem(LASSO_PICK_KEY) || 'null');
+      if (v && typeof v === 'object') KINDS.forEach(k => { if (typeof v[k] === 'boolean') lassoPick[k] = v[k]; });
+    } catch (e) { /* 読めなければ既定のまま */ }
+  }
+  function saveLassoPick() {
+    try { localStorage.setItem(LASSO_PICK_KEY, JSON.stringify(lassoPick)); } catch (e) {}
+  }
   let lassoPath = null;      // 描いている最中の囲み線
   let lassoSel = null;       // { pv, items:{strokes:[],images:[],texts:[],masks:[]}, box:{x,y,w,h} }
   let clipboard = null;      // コピー／カットしたもの
@@ -921,6 +932,12 @@ PN.editor = (function () {
     renderLasso();
   }
   function clearLasso() { lassoSel = null; renderLasso(); }
+  /* 囲んだ範囲の大きさ（タップと囲みを見分けるため） */
+  function polySpan(poly) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    poly.forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); });
+    return Math.max(x1 - x0, y1 - y0);
+  }
 
   /* 囲んでいる最中の線を描く */
   function drawLassoPath(pv, poly) {
@@ -953,7 +970,8 @@ PN.editor = (function () {
     el.addEventListener('pointerdown', (e) => { if (e.target !== rs) startLassoDrag(e, 'move'); });
     rs.addEventListener('pointerdown', (e) => startLassoDrag(e, 'resize'));
     pv.text.appendChild(el);       // 文字レイヤーの上に重ねて表示
-    pv.text.style.pointerEvents = 'auto';
+    // ※ レイヤー全体は塞がない。枠の外をタップしたら選択を解除して次の選択に移れるようにする
+    //   （.lasso-sel だけ CSS で pointer-events:auto にしている）
   }
 
   /* 選択したものをまとめて動かす／拡大縮小する */
@@ -1008,9 +1026,10 @@ PN.editor = (function () {
     document.removeEventListener('pointerup', endLassoDrag);
     lassoDrag = null; markDirty();
   }
-  function redrawSelPage() {
-    if (!lassoSel) return;
-    const pv = lassoSel.pv;
+  /* ページを描き直す。選択を解除したあとでも描き直せるよう、対象ページを渡せる */
+  function redrawSelPage(pvArg) {
+    const pv = pvArg || (lassoSel && lassoSel.pv);
+    if (!pv) return;
     renderInk(pv); renderImages(pv); renderTexts(pv); renderMasks(pv);
   }
 
@@ -1033,7 +1052,9 @@ PN.editor = (function () {
       lassoSel.items[k].slice().sort((a, b) => b - a).forEach(i => ann[k].splice(i, 1));
     });
     const n = selCount(lassoSel.items);
-    clearLasso(); redrawSelPage(); markDirty();
+    clearLasso();
+    redrawSelPage(pv);          // 選択を解除したあとでも、そのページを確実に描き直す
+    markDirty();
     if (!quiet) PN.ui.toast(n + ' 個を削除しました');
     else PN.ui.toast(n + ' 個をカットしました');
   }
@@ -1173,7 +1194,8 @@ PN.editor = (function () {
     if (g.type === 'pan') return;
     if (g.type === 'lasso') {
       clearCtx(pv.live, pv.livectx);
-      if (g.poly.length >= 3) finishLasso(pv, g.poly);
+      // ごく小さい囲み＝ただのタップ。選択を解除するだけで、メッセージは出さない
+      if (g.poly.length >= 3 && polySpan(g.poly) > 8) finishLasso(pv, g.poly);
       return;
     }
     if (g.type === 'erase') { if (g.changed) { pushUndoSnap(pv.idx, g.before); markDirty(); } return; }
@@ -1525,7 +1547,7 @@ PN.editor = (function () {
     updateCurrent(); markDirty();
   }
   async function clearPageInk() {
-    if (!(await PN.ui.confirm('今表示しているページの書き込み（線・かくす枠）をすべて消します。よろしいですか？', { danger: true, ok: '消す' }))) return;
+    if (!(await PN.ui.confirm('今表示しているページの書き込み（線・目かくし）をすべて消します。よろしいですか？', { danger: true, ok: '消す' }))) return;
     pushUndo(currentIdx); nb.pages[currentIdx].annotations = { strokes: [], masks: [], texts: [], images: [] };
     const pv = pageViews[currentIdx]; if (pv) { renderInk(pv); renderMasks(pv); renderTexts(pv); renderImages(pv); } markDirty();
   }
@@ -1559,7 +1581,7 @@ PN.editor = (function () {
   }
   function renderThumbBlob(def, w) { return renderThumbToCanvas(def, w).then(c => new Promise(res => c.toBlob(res, 'image/png'))); }
 
-  /* ---------- ページの合成描画（背景＋書き込み＋かくす枠）: 一覧サムネ・PDF書き出し用 ---------- */
+  /* ---------- ページの合成描画（背景＋書き込み＋目かくし）: 一覧サムネ・PDF書き出し用 ---------- */
   function composeStroke(ctx, s, scale, canvasW) {
     const pts = s.points; if (!pts || !pts.length) return;
     ctx.strokeStyle = s.color; ctx.fillStyle = s.color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -1589,7 +1611,7 @@ PN.editor = (function () {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     }
     const ann = def.annotations || {};
-    // 背景 → 置いた画像 → 書き込み → 入れた文字 → かくす枠（上に重ねて答えを隠す）の順
+    // 背景 → 置いた画像 → 書き込み → 入れた文字 → 目かくし（上に重ねて答えを隠す）の順
     if (ann.images) {
       for (const im of ann.images) {
         try {

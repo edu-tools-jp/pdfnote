@@ -6,7 +6,7 @@
  *  ├── index.json                 … 全ノートの目次（学年・単元・更新日 など）
  *  └── notebooks/
  *      └── <ノートID>/
- *          ├── notebook.json      … ページ構成と書き込み（線・かくす枠）
+ *          ├── notebook.json      … ページ構成と書き込み（線・目かくし）
  *          ├── thumb.png          … 一覧用サムネイル
  *          └── assets/            … 取り込んだ PDF / 画像の本体
  */
