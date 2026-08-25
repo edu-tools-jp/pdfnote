@@ -175,9 +175,9 @@ PN.storage = (function () {
   const entryOf = (id) => index.notebooks.find(n => n.id === id);
 
   /* ---- フォルダ操作 ---- */
-  async function createFolder(name, parent = null) {
+  async function createFolder(name, parent = null, color = '') {
     const id = 'fd-' + now() + '-' + rid();
-    const folder = { id, name, parent: parent || null, createdAt: now() };
+    const folder = { id, name, parent: parent || null, color: color || '', createdAt: now() };
     index.folders.push(folder);
     await saveIndex();
     return folder;
@@ -186,6 +186,13 @@ PN.storage = (function () {
     const f = index.folders.find(x => x.id === id);
     if (!f) return;
     f.name = name;
+    await saveIndex();
+  }
+  /* フォルダの色を変える（'' なら標準色にもどす） */
+  async function setFolderColor(id, color) {
+    const f = index.folders.find(x => x.id === id);
+    if (!f) return;
+    f.color = color || '';
     await saveIndex();
   }
   /* 親フォルダを変える。循環（自分自身や自分の子孫に入れる）は拒否 */
@@ -339,7 +346,7 @@ PN.storage = (function () {
   return {
     tryRestore, usePrevious, pickFolder,
     getIndex, loadIndex, saveIndex, entryOf,
-    createFolder, renameFolder, moveFolder, deleteFolder,
+    createFolder, renameFolder, setFolderColor, moveFolder, deleteFolder,
     createNotebook, getNotebook, saveNotebook, updateMeta, deleteNotebook, copyNotebook,
     addAsset, readAsset, saveThumb, readThumb, rootName
   };

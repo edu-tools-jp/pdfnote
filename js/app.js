@@ -5,7 +5,9 @@ PN.app = (function () {
   const $ = (s) => document.querySelector(s);
   let restoreHandle = null;
 
-  const APP_VERSION = '20260825f';   // 表示用（service-worker.js の VERSION と揃える）
+  // ★ 公開のたびに、この値と service-worker.js の VERSION を「同じ値」に変えること。
+  //    食い違うと「表示中のファイルが古いようです」の案内が出る（それが食い違い検知のしくみ）。
+  const APP_VERSION = '20260825k';
   let swReg = null, waitingWorker = null, swReloading = false;
 
   function showOnly(id) {
@@ -24,6 +26,7 @@ PN.app = (function () {
     PN.pages.init();
     bindStart();
     bindFileInput();
+    showBuildStamp();
     initServiceWorker();
     const upd = $('#btn-update'); if (upd) upd.addEventListener('click', checkForUpdate);
     window.addEventListener('beforeunload', () => { PN.editor.flushSave(); });
@@ -82,6 +85,14 @@ PN.app = (function () {
     if (!e) return '不明なエラー';
     if (e.name || e.message) return (e.name || 'Error') + ': ' + (e.message || '');
     return String(e);
+  }
+
+  /* 画面すみの版番号は APP_VERSION から入れる（手書きの重複を作らない） */
+  function showBuildStamp() {
+    document.querySelectorAll('.build-stamp').forEach(el => {
+      el.textContent = APP_VERSION;
+      el.title = 'アプリのバージョン ' + APP_VERSION;
+    });
   }
 
   /* ---- Service Worker（オフライン動作＋更新ボタン） ---- */
