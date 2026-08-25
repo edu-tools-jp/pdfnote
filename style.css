@@ -66,7 +66,6 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 
 /* ノート／フォルダのカード */
 .card-thumb .ic{width:42px; height:42px; stroke-width:1.4; color:var(--muted);}
-.folder-card .folder-thumb .ic{width:62px; height:62px; color:#9bb3ff;}
 .card-meta{display:flex; align-items:center; gap:5px;}
 .card-meta .ic{width:14px; height:14px; flex:none;}
 
@@ -129,18 +128,23 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 .path-current{font-size:15px; color:var(--ink); padding:6px 4px;}
 
 /* ---- フォルダカード（自分で作るフォルダ） ---- */
-/* --fc-bg / --fc-line はフォルダごとの色。未設定なら標準色 */
-.folder-card{border:2px solid var(--fc-line,var(--line));}
+/* フォルダの絵そのものに色をつける（--fc がそのフォルダの色） */
+.folder-card{border:2px solid var(--fc,var(--line));}
 .folder-card .folder-thumb{
-  background:var(--fc-bg,#2c3651); font-size:64px; color:#9bb3ff;
-  border-bottom:2px solid var(--fc-line,var(--line));
+  background:#232b3d; color:var(--fc,#f5c141);
+  border-bottom:2px solid var(--fc,var(--line));
 }
-/* フォルダ名の頭に、そのフォルダの色を小さく出す（一覧で見分けやすく） */
-.folder-card .card-title{display:flex; align-items:center; gap:8px;}
-.folder-card .card-title::before{
-  content:""; width:10px; height:10px; border-radius:50%;
-  background:var(--fc-line,var(--line)); flex:none;
-}
+.folder-card .folder-thumb .ic{width:84px; height:84px; color:inherit;}
+.ic-solid{fill:currentColor; stroke:none;}
+
+/* 更新のお知らせ */
+.wn-modal{width:min(560px,94vw);}
+.wn-block{margin-bottom:18px;}
+.wn-block:last-child{margin-bottom:0;}
+.wn-head{font-size:16px; font-weight:700; display:flex; align-items:baseline; gap:10px;}
+.wn-ver{font-size:11px; color:var(--muted); font-weight:normal;}
+.wn-list{margin:8px 0 0; padding-left:20px;}
+.wn-list li{font-size:15px; line-height:1.8; color:var(--ink);}
 
 /* 色えらび（フォルダの色を選ぶ丸ボタン） */
 .fc-swatches{display:flex; flex-wrap:wrap; gap:10px; margin-top:8px;}
