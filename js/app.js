@@ -66,7 +66,7 @@ PN.app = (function () {
   }
   async function doPick() {
     if (!window.showDirectoryPicker) {
-      alert('このブラウザはフォルダ保存（File System Access API）に対応していません。\nGoogle Chrome か Microsoft Edge で、付属の「PDF-Note-Start.bat」から開いてください。');
+      alert('このブラウザはフォルダ保存（File System Access API）に対応していません。\nGoogle Chrome か Microsoft Edge でひらき直してください。');
       return;
     }
     try {

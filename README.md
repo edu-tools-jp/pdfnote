@@ -4,7 +4,9 @@
 タッチペンで書き込める授業用ノートです。Windows のタッチ対応 PC を想定しています。
 
 **ソフトのインストール不要**（Google Chrome または Microsoft Edge が必要）。
-付属の `PDF-Note-Start.bat` をダブルクリックするだけで開きます。
+下の URL をひらくだけで使えます。
+
+**https://edu-tools-jp.github.io/pdfnote/**
 
 ---
 
@@ -55,8 +57,9 @@
 
 ### 1. 起動する
 
-このフォルダの **`PDF-Note-Start.bat`** をダブルクリックします。
-（専用ウィンドウで Chrome／Edge が開きます。ふだんのブラウザには影響しません。）
+Chrome または Edge で **https://edu-tools-jp.github.io/pdfnote/** をひらきます。
+ブックマークするか、デスクトップにショートカットを作っておくと便利です。
+初回に一度ひらいておけば、次からはネットが無くても起動します。
 
 ### 2. データフォルダを選ぶ（最初の1回だけ）
 
@@ -151,14 +154,14 @@
 - **Windows 10 / 11**、タッチ対応スクリーン（タッチペン）
 - **Google Chrome** または **Microsoft Edge**（新しめのバージョン）
 - ※ ファイル保存に「File System Access API」を使うため、Chrome / Edge 専用です。
-  起動は付属の `.bat` から行ってください（保存先フォルダの許可が正しく出ます）。
 
 ---
 
 ## 困ったとき
 
 **「データフォルダを選ぶ」を押しても保存できない／許可が出ない**
-- `index.html` を直接ダブルクリックしていませんか？ いったん閉じて **`PDF-Note-Start.bat`** から開き直してください。
+- Chrome / Edge 以外のブラウザで開いていませんか？ `index.html` をローカルで直接ダブルクリックした場合もうまく動きません。
+  **https://edu-tools-jp.github.io/pdfnote/** からひらき直してください。
 
 **PDF の表示が遅い**
 - ページ数の多い PDF や、画質の高いスキャン画像は表示に少し時間がかかります。
@@ -186,7 +189,8 @@ js/pages.js          … ページ一覧（サムネ・並べ替え・削除/コ
 js/app.js            … 起動と画面切り替え
 vendor/pdfjs/        … PDF.js（Mozilla, Apache-2.0）PDF 表示ライブラリ
 vendor/jspdf/        … jsPDF（MIT）PDF 書き出しライブラリ
-PDF-Note-Start.bat    … 起動ファイル（Chrome / Edge）
+service-worker.js    … オフライン動作と「更新」ボタン
+manifest.webmanifest … アプリとしてインストールするための情報
 ```
 
 PDF 表示には [PDF.js](https://mozilla.github.io/pdf.js/)（v3.11.174, Apache License 2.0）、
