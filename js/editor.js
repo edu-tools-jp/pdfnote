@@ -900,6 +900,40 @@ PN.editor = (function () {
     const corners = [[o.x, o.y], [o.x + o.w, o.y], [o.x, o.y + o.h], [o.x + o.w, o.y + o.h]];
     return corners.filter(c => pointInPoly(c[0], c[1], poly)).length >= 3;
   }
+  /* テキストボックスの「実際に文字が見えている範囲」を内部座標で返す。
+     箱は中身より大きいことが多く（作成時は横260px）、「文字」以外の道具では
+     枠が見えないため、見えている文字のまわりを囲んだだけでは選べなかった。
+     文字が空のときや、まだ描画されていないページのときは null を返し、
+     呼び出し側は箱そのもので判定する。 */
+  function textVisibleRect(pv, idx) {
+    const body = pv.text.querySelector('.textbox[data-idx="' + idx + '"] .tb-body');
+    if (!body || !body.firstChild) return null;
+    let rects;
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(body);
+      rects = range.getClientRects();
+    } catch (e) { return null; }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < rects.length; i++) {
+      const q = rects[i];
+      if (!q.width && !q.height) continue;    // 改行だけの行は無視
+      x0 = Math.min(x0, q.left); y0 = Math.min(y0, q.top);
+      x1 = Math.max(x1, q.right); y1 = Math.max(y1, q.bottom);
+    }
+    if (!isFinite(x0) || x1 <= x0 || y1 <= y0) return null;
+    const pr = pv.el.getBoundingClientRect();
+    return {
+      x: (x0 - pr.left) / pv.scale, y: (y0 - pr.top) / pv.scale,
+      w: (x1 - x0) / pv.scale, h: (y1 - y0) / pv.scale
+    };
+  }
+  /* 文字は「見えている範囲」か「箱そのもの」のどちらかが囲まれていれば選ぶ */
+  function textInPoly(pv, idx, o, poly) {
+    if (boxInPoly(o, poly)) return true;
+    const v = textVisibleRect(pv, idx);
+    return !!v && boxInPoly(v, poly);
+  }
   function strokeInPoly(s, poly) {
     const pts = s.points || []; if (!pts.length) return false;
     let inside = 0;
@@ -925,7 +959,7 @@ PN.editor = (function () {
     const items = { strokes: [], images: [], texts: [], masks: [] };
     if (lassoPick.strokes) ann.strokes.forEach((s, i) => { if (strokeInPoly(s, poly)) items.strokes.push(i); });
     if (lassoPick.images) ann.images.forEach((o, i) => { if (boxInPoly(o, poly)) items.images.push(i); });
-    if (lassoPick.texts) ann.texts.forEach((o, i) => { if (boxInPoly(o, poly)) items.texts.push(i); });
+    if (lassoPick.texts) ann.texts.forEach((o, i) => { if (textInPoly(pv, i, o, poly)) items.texts.push(i); });
     if (lassoPick.masks) ann.masks.forEach((o, i) => { if (boxInPoly(o, poly)) items.masks.push(i); });
     if (!selCount(items)) { clearLasso(); PN.ui.toast('囲みの中に選べるものがありませんでした'); return; }
     lassoSel = { pv, items, box: selectionBox(pv, items) };
