@@ -497,7 +497,15 @@ PN.editor = (function () {
     const t = selectedTextObj();
     if (t) {
       pushUndo(selText.pv.idx);
+      // 縦書き⇄横書きを切り替えたら、箱の縦横も入れ替えて向きを合わせる
+      const flip = (patch.vertical !== undefined && !!patch.vertical !== !!t.vertical);
       Object.assign(t, patch);
+      if (flip) {
+        const pv = selText.pv, w = t.w, h = t.h;
+        t.w = Math.min(h, pv.baseW); t.h = Math.min(w, pv.baseH);
+        t.x = Math.max(0, Math.min(pv.baseW - t.w, t.x));
+        t.y = Math.max(0, Math.min(pv.baseH - t.h, t.y));
+      }
       renderTexts(selText.pv);
       markDirty();
     }
@@ -624,9 +632,13 @@ PN.editor = (function () {
     if (e.target.closest('.textbox')) return;      // 既存のボックス上なら何もしない
     const [x, y] = toIntrinsic(e, pv);
     pushUndo(pv.idx);
+    // 縦書きなら縦長、横書きなら横長の箱で作る
+    const longSide = 260, shortSide = Math.max(40, textStyle.size * 2);
+    const bw = textStyle.vertical ? shortSide : longSide;
+    const bh = textStyle.vertical ? longSide : shortSide;
     const t = {
-      x: Math.max(0, Math.min(pv.baseW - 200, x)), y: Math.max(0, Math.min(pv.baseH - 40, y)),
-      w: Math.min(260, pv.baseW - x), h: Math.max(40, textStyle.size * 2),
+      x: Math.max(0, Math.min(pv.baseW - bw, x)), y: Math.max(0, Math.min(pv.baseH - bh, y)),
+      w: Math.min(bw, pv.baseW), h: Math.min(bh, pv.baseH),
       text: '', font: textStyle.font, size: textStyle.size, color: textStyle.color,
       bold: textStyle.bold, align: textStyle.align, vertical: textStyle.vertical, bg: textStyle.bg
     };
