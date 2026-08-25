@@ -58,6 +58,15 @@ PN.ui = (function () {
             `<option value="${escapeAttr(o.value)}" ${o.value === f.value ? 'selected' : ''}>${escapeHTML(o.label)}</option>`).join('');
           return `<label>${escapeHTML(f.label)}<select name="${f.name}">${opts}</select></label>`;
         }
+        if (f.type === 'swatch') {
+          const sw = (f.options || []).map(o =>
+            `<button type="button" class="fc-swatch${o.value === (f.value || '') ? ' active' : ''}"` +
+            ` data-val="${escapeAttr(o.value)}" title="${escapeAttr(o.label)}"` +
+            ` style="--sw:${escapeAttr(o.color)}"></button>`).join('');
+          return `<label>${escapeHTML(f.label)}
+            <span class="fc-swatches">${sw}</span>
+            <input type="hidden" name="${f.name}" value="${escapeAttr(f.value || '')}"></label>`;
+        }
         const listAttr = f.list ? ` list="${dlId}-${f.name}"` : '';
         const datalist = f.list
           ? `<datalist id="${dlId}-${f.name}">${f.list.map(v => `<option value="${escapeAttr(v)}">`).join('')}</datalist>`
@@ -79,7 +88,7 @@ PN.ui = (function () {
           </div>
         </div>`;
       document.getElementById('modal-root').appendChild(back);
-      const firstInput = back.querySelector('input,select');
+      const firstInput = back.querySelector('input:not([type="hidden"]),select');
       if (firstInput) setTimeout(() => firstInput.focus(), 30);
 
       const close = (val) => { back.remove(); resolve(val); };
@@ -89,6 +98,16 @@ PN.ui = (function () {
         close(out);
       };
       back.addEventListener('click', (e) => {
+        // 色えらび：押した色を選択状態にして、隠し入力に値を入れる
+        const sw = e.target.closest && e.target.closest('.fc-swatch');
+        if (sw) {
+          const wrap = sw.parentElement;
+          wrap.querySelectorAll('.fc-swatch').forEach(b => b.classList.remove('active'));
+          sw.classList.add('active');
+          const hidden = wrap.parentElement.querySelector('input[type="hidden"]');
+          if (hidden) hidden.value = sw.dataset.val;
+          return;
+        }
         if (e.target === back) close(null);
         const act = e.target.getAttribute('data-act');
         if (act === 'ok') submit();

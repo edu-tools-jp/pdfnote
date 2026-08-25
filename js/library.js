@@ -136,8 +136,11 @@ PN.library = (function () {
       noteCount + ' ノート'
     ].filter(Boolean).join(' ・ ');
     const el = document.createElement('div'); el.className = 'card folder-card';
+    const fc = folderColor(f.color);
+    el.style.setProperty('--fc-bg', fc.bg);
+    el.style.setProperty('--fc-line', fc.line);
     el.innerHTML = `
-      <div class="card-thumb folder-thumb">${PN.ui.icon('folder')}</div>
+      <div class="card-thumb folder-thumb">📁</div>
       <div class="card-body">
         <div class="card-title">${PN.ui.escapeHTML(f.name)}</div>
         <div class="card-meta">${meta}</div>
@@ -180,10 +183,24 @@ PN.library = (function () {
   }
 
   /* ---- メニュー ---- */
+  /* フォルダの色。key を index.json に保存し、bg=サムネの背景／line=カードの枠 */
+  const FOLDER_COLORS = [
+    { value: '',       label: '標準',    color: '#4a5a80', bg: '#2c3651', line: '#5b6c94' },
+    { value: 'blue',   label: '青',      color: '#3d8bfd', bg: '#28558f', line: '#5a9dff' },
+    { value: 'green',  label: '緑',      color: '#39b87a', bg: '#236b4f', line: '#4fd196' },
+    { value: 'teal',   label: '水色',    color: '#35c4d6', bg: '#1c6472', line: '#4bd6e6' },
+    { value: 'orange', label: 'だいだい', color: '#f0a500', bg: '#7a5410', line: '#ffbe2e' },
+    { value: 'red',    label: '赤',      color: '#e0533d', bg: '#7a3428', line: '#f4715c' },
+    { value: 'pink',   label: '桃',      color: '#ef77b4', bg: '#733559', line: '#ff93c6' },
+    { value: 'purple', label: '紫',      color: '#b06cf0', bg: '#553d80', line: '#c48bff' }
+  ];
+  const folderColor = (key) => FOLDER_COLORS.find(c => c.value === (key || '')) || FOLDER_COLORS[0];
+
   function folderMenu(anchor, f) {
     PN.ui.menu(anchor, [
       { label: '開く', onClick: () => { currentFolder = f.id; render(); } },
       { label: '名前を変える', onClick: () => renameFolder(f) },
+      { label: '色を変える', onClick: () => changeFolderColor(f) },
       { label: '場所を変える', onClick: () => moveFolderDialog(f) },
       { label: '削除する', danger: true, onClick: () => deleteFolder(f) }
     ]);
@@ -250,12 +267,13 @@ PN.library = (function () {
       title: '新しいフォルダをつくる', ok: 'つくる',
       fields: [
         { name: 'name', label: 'フォルダ名', placeholder: '例）2年 化学 / 第1章 など' },
-        { name: 'parent', label: '入れる場所', type: 'select', value: currentFolder || '', options: opts }
+        { name: 'parent', label: '入れる場所', type: 'select', value: currentFolder || '', options: opts },
+        { name: 'color', label: '色（種類ごとに分けるとき）', type: 'swatch', value: '', options: FOLDER_COLORS }
       ]
     });
     if (!vals) return;
     if (!vals.name) { PN.ui.toast('フォルダ名を入れてください'); return; }
-    await PN.storage.createFolder(vals.name, vals.parent || null);
+    await PN.storage.createFolder(vals.name, vals.parent || null, vals.color || '');
     render();
   }
 
@@ -263,6 +281,15 @@ PN.library = (function () {
     const vals = await PN.ui.form({ title: 'フォルダ名を変える', ok: '変更', fields: [{ name: 'name', label: 'フォルダ名', value: f.name }] });
     if (!vals || !vals.name) return;
     await PN.storage.renameFolder(f.id, vals.name);
+    render();
+  }
+  async function changeFolderColor(f) {
+    const vals = await PN.ui.form({
+      title: 'フォルダの色を変える', ok: '変更',
+      fields: [{ name: 'color', label: `「${f.name}」の色`, type: 'swatch', value: f.color || '', options: FOLDER_COLORS }]
+    });
+    if (!vals) return;
+    await PN.storage.setFolderColor(f.id, vals.color || '');
     render();
   }
   async function moveFolderDialog(f) {
