@@ -33,7 +33,7 @@ PN.library = (function () {
     }
     const homeBtn = document.createElement('button');
     homeBtn.className = 'path-link' + (currentFolder === null ? ' current' : '');
-    homeBtn.textContent = '📂 ホーム';
+    homeBtn.innerHTML = PN.ui.icon('folder-open') + 'ホーム';
     homeBtn.addEventListener('click', () => { currentFolder = null; render(); });
     path.appendChild(homeBtn);
     chain.forEach((node, i) => {
@@ -41,11 +41,11 @@ PN.library = (function () {
       path.appendChild(sep);
       const isLast = (i === chain.length - 1);
       if (isLast) {
-        const cur = document.createElement('span'); cur.className = 'path-current'; cur.textContent = '📁 ' + node.name;
+        const cur = document.createElement('span'); cur.className = 'path-current'; cur.innerHTML = PN.ui.icon('folder') + PN.ui.escapeHTML(node.name);
         path.appendChild(cur);
       } else {
         const btn = document.createElement('button');
-        btn.className = 'path-link'; btn.textContent = '📁 ' + node.name;
+        btn.className = 'path-link'; btn.innerHTML = PN.ui.icon('folder') + PN.ui.escapeHTML(node.name);
         btn.addEventListener('click', () => { currentFolder = node.id; render(); });
         path.appendChild(btn);
       }
@@ -122,7 +122,7 @@ PN.library = (function () {
         + (search ? '該当するものがありません。'
           : (currentFolder === null
             ? '該当するものがありません。'
-            : 'このフォルダにはまだ何もありません。「＋ 新規ノート」「📁＋ 新規フォルダ」で追加してください。'))
+            : 'このフォルダにはまだ何もありません。「新規ノート」「新規フォルダ」で追加してください。'))
         + '</p>';
     }
   }
@@ -137,7 +137,7 @@ PN.library = (function () {
     ].filter(Boolean).join(' ・ ');
     const el = document.createElement('div'); el.className = 'card folder-card';
     el.innerHTML = `
-      <div class="card-thumb folder-thumb">📁</div>
+      <div class="card-thumb folder-thumb">${PN.ui.icon('folder')}</div>
       <div class="card-body">
         <div class="card-title">${PN.ui.escapeHTML(f.name)}</div>
         <div class="card-meta">${meta}</div>
@@ -157,10 +157,10 @@ PN.library = (function () {
     const dStr = d ? `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}` : '';
     const fpath = folderPath(n.folder);
     el.innerHTML = `
-      <div class="card-thumb">${n.hasThumb ? '' : '📄'}</div>
+      <div class="card-thumb">${n.hasThumb ? '' : PN.ui.icon('note')}</div>
       <div class="card-body">
         <div class="card-title">${PN.ui.escapeHTML(n.title || '(無題)')}</div>
-        <div class="card-meta">${fpath ? '📁 ' + PN.ui.escapeHTML(fpath) : '📂 ホーム'}</div>
+        <div class="card-meta">${fpath ? PN.ui.icon('folder') + PN.ui.escapeHTML(fpath) : PN.ui.icon('folder-open') + 'ホーム'}</div>
         <div class="card-meta">${n.pageCount || 0} ページ ・ ${dStr}</div>
       </div>
       <div class="card-actions">
