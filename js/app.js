@@ -5,7 +5,7 @@ PN.app = (function () {
   const $ = (s) => document.querySelector(s);
   let restoreHandle = null;
 
-  const APP_VERSION = '20260825b';   // 表示用（service-worker.js の VERSION と揃える）
+  const APP_VERSION = '20260825c';   // 表示用（service-worker.js の VERSION と揃える）
   let swReg = null, waitingWorker = null, swReloading = false;
 
   function showOnly(id) {
@@ -106,6 +106,17 @@ PN.app = (function () {
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (swReloading) return; swReloading = true; location.reload();
       });
+      // 表示中のファイルと Service Worker のバージョンが食い違っていたら知らせる
+      // （キャッシュの取り違えで「番号だけ新しい」状態になっていないかの確認）
+      navigator.serviceWorker.addEventListener('message', (ev) => {
+        const d = ev.data;
+        if (d && d.type === 'version' && d.version && d.version !== APP_VERSION) {
+          PN.ui.toast('表示中のファイルが古いようです。Ctrl+Shift+R で読み込み直してください', 7000);
+        }
+      });
+      setTimeout(() => {
+        try { if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage('version'); } catch (e) {}
+      }, 2500);
       // たまに自動で更新チェック（起動時・以後1時間ごと）
       setTimeout(() => { try { swReg.update(); } catch (e) {} }, 4000);
       setInterval(() => { try { swReg && swReg.update(); } catch (e) {} }, 60 * 60 * 1000);

@@ -7,7 +7,7 @@
  *  ★ 新しい版を GitHub に上げるときは、必ず下の VERSION を書き換えてください（例: 日付）。
  *    VERSION が変わらないと、ブラウザは「更新なし」と判断します。
  */
-const VERSION = '20260825b';                 // ← 公開のたびに変更する
+const VERSION = '20260825c';                 // ← 公開のたびに変更する
 const CACHE = 'pdfnote-' + VERSION;
 
 // キャッシュするファイル（SW自身の場所からの相対パス）
@@ -30,7 +30,18 @@ const ASSETS = [
 
 self.addEventListener('install', (e) => {
   // 新版はすぐには有効化せず「待機」させる（更新ボタンで反映）
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).catch(() => {}));
+  e.waitUntil((async () => {
+    const c = await caches.open(CACHE);
+    // ★ 必ずサーバから取り直す（cache:'reload' でブラウザのHTTPキャッシュを迂回）。
+    //   これをしないと、GitHub Pages のキャッシュが残っているあいだは
+    //   「バージョン番号だけ新しく、中身は古いまま」になってしまう。
+    for (const url of ASSETS) {
+      try {
+        const res = await fetch(new Request(url, { cache: 'reload' }));
+        if (res && res.ok) await c.put(url, res);
+      } catch (err) { /* 1つ失敗しても、残りのファイルは取得を続ける */ }
+    }
+  })());
 });
 
 self.addEventListener('activate', (e) => {
