@@ -7,51 +7,11 @@ PN.app = (function () {
 
   // ★ 公開のたびに、この値と service-worker.js の VERSION を「同じ値」に変えること。
   //    食い違うと「表示中のファイルが古いようです」の案内が出る（それが食い違い検知のしくみ）。
-  const APP_VERSION = '20260825q';
+  const APP_VERSION = '20260825r';
 
-  /* 更新のたびに、いちばん上へ新しい項目を足す（先生に知らせる内容）。
-     ここに書いた内容が、更新後にアプリを開いたとき自動で表示される。 */
-  const RELEASE_NOTES = [
-    {
-      version: '20260825q',
-      title: '全画面のときに出る Chrome の案内が出なくなりました',
-      items: [
-        'これまで全画面にすると Chrome の「全画面表示を終了するには Esc キーを押します」が毎回出ていましたが、出なくなりました。',
-        '全画面を終わるときは、画面の右上に出る「全画面解除」を押してください（Esc キーでも戻れます）。',
-        'アドレスバー右の「インストール」からアプリとして入れておくと、より画面いっぱいに映せます。'
-      ]
-    },
-    {
-      version: '20260825n',
-      title: '全画面まわりを分かりやすくしました',
-      items: [
-        '「画面に合わせる」「全画面」「全画面解除」のアイコンを、それぞれ別の絵にして見分けやすくしました。',
-        '全画面にしたとき、終了のしかた（Esc キー／画面を長押しして × をタップ）を画面に出すようにしました。'
-      ]
-    },
-    {
-      version: '20260825m',
-      title: 'フォルダの絵を Windows のフォルダに合わせました',
-      items: ['ホーム画面のフォルダの形を、Windows のフォルダに近づけました。']
-    },
-    {
-      version: '20260825l',
-      title: 'フォルダの色分けと、更新のお知らせ',
-      items: [
-        'フォルダごとに色を選べるようになりました（フォルダの ⋯ →「色を変える」、または新規作成時）。',
-        'アプリが新しくなったとき、変わった点をこの画面でお知らせするようにしました。'
-      ]
-    },
-    {
-      version: '20260825k',
-      title: '画面の見た目を整えました',
-      items: [
-        '道具のアイコンを描き直し、アプリ全体で見た目を統一しました。',
-        '上のツールバーが、どの道具を選んでも2行に収まるようにしました。'
-      ]
-    }
-  ];
-  const LAST_SEEN_KEY = 'pdfnote.lastSeenVersion';
+  /* 更新内容は release-notes.json に置く（サーバ上の最新をそのつど読む）。
+     公開のたびに、いちばん上へ今回の版の項目を足すこと。 */
+  const NOTES_URL = 'release-notes.json';
   let swReg = null, waitingWorker = null, swReloading = false;
 
   function showOnly(id) {
@@ -131,20 +91,34 @@ PN.app = (function () {
     return String(e);
   }
 
-  /* 前に開いたときより新しくなっていたら、変わった点をお知らせする。
-     初めて開いたときや、同じ版のときは何も出さない。 */
-  let whatsNewShown = false;
-  function showWhatsNew() {
-    if (whatsNewShown) return;
-    whatsNewShown = true;
-    let last = null;
-    try { last = localStorage.getItem(LAST_SEEN_KEY); } catch (e) { return; }
-    try { localStorage.setItem(LAST_SEEN_KEY, APP_VERSION); } catch (e) {}
-    if (!last || last === APP_VERSION) return;
-    const fresh = [];
-    for (const n of RELEASE_NOTES) { if (n.version === last) break; fresh.push(n); }
-    if (!fresh.length) return;
-    PN.ui.info({ title: 'PDFノートが新しくなりました', notes: fresh });
+  /* 今より新しい版の更新内容だけを取り出す。
+     いちばん上から見ていき、いま動いている版に当たったらそこで止める。 */
+  async function fetchNewNotes() {
+    try {
+      const res = await fetch(NOTES_URL + '?t=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) return null;
+      const all = await res.json();
+      if (!Array.isArray(all)) return null;
+      const fresh = [];
+      for (const n of all) { if (n && n.version === APP_VERSION) break; if (n) fresh.push(n); }
+      return fresh;
+    } catch (e) { return null; }
+  }
+
+  /* 更新するか、内容を見せたうえで聞く */
+  async function askAndUpdate(worker) {
+    PN.ui.busy(true, '更新内容を確認中…');
+    const notes = await fetchNewNotes();
+    PN.ui.busy(false);
+    const ok = await PN.ui.info({
+      title: '新しいバージョンがあります',
+      lead: (notes && notes.length)
+        ? '更新すると、次のように変わります。画面が再読み込みされますが、書き込みは保存済みです。'
+        : '更新内容を読み込めませんでした（ネット接続を確認してください）。更新すると画面が再読み込みされますが、書き込みは保存済みです。',
+      notes: notes || [],
+      ok: '更新する', cancel: 'あとで'
+    });
+    if (ok) worker.postMessage('skipWaiting');   // → controllerchange で自動リロード
   }
 
   /* 画面すみの版番号は APP_VERSION から入れる（手書きの重複を作らない） */
@@ -211,12 +185,7 @@ PN.app = (function () {
     if (!swReg) { PN.ui.toast('この開き方では更新機能は使えません（GitHub Pages のURLで開いてください）'); return; }
     // すでに新版が待機していれば、それを適用
     const ready = waitingWorker || swReg.waiting;
-    if (ready) {
-      if (await PN.ui.confirm('新しいバージョンがあります。今すぐ更新しますか？\n（画面が再読み込みされます。書き込みは保存済みです）', { ok: '更新する' })) {
-        ready.postMessage('skipWaiting');   // → controllerchange で自動リロード
-      }
-      return;
-    }
+    if (ready) { await askAndUpdate(ready); return; }
     // サーバに最新があるか確認
     PN.ui.busy(true, '更新を確認中…');
     try {
@@ -225,7 +194,7 @@ PN.app = (function () {
       const w = swReg.waiting || waitingWorker;
       PN.ui.busy(false);
       if (w) {
-        if (await PN.ui.confirm('新しいバージョンが見つかりました。今すぐ更新しますか？\n（画面が再読み込みされます）', { ok: '更新する' })) w.postMessage('skipWaiting');
+        await askAndUpdate(w);
       } else {
         PN.ui.toast('最新の状態です（' + APP_VERSION + '）');
       }
@@ -252,7 +221,7 @@ PN.app = (function () {
   function pickImageForPage() { $('#image-input').click(); }
 
   /* ---- 画面遷移 ---- */
-  function showLibrary() { showOnly('#screen-library'); PN.library.show(); showWhatsNew(); }
+  function showLibrary() { showOnly('#screen-library'); PN.library.show(); }
 
   async function openEditor(nb, pickAfter) {
     showOnly('#screen-editor');

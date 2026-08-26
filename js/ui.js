@@ -23,11 +23,12 @@ PN.ui = (function () {
 
   /* 確認ダイアログ（Promise<boolean>） */
   /* お知らせダイアログ（OKだけ）。notes:[{version,title,items:[]}] */
-  function info({ title, notes = [], ok = '閉じる' }) {
+  function info({ title, lead = '', notes = [], ok = '閉じる', cancel = '' }) {
     return new Promise((resolve) => {
-      const body = notes.map(n => `
+      const body = (lead ? `<p class="wn-lead">${escapeHTML(lead)}</p>` : '') + notes.map(n => `
         <div class="wn-block">
-          <div class="wn-head">${escapeHTML(n.title)}<span class="wn-ver">${escapeHTML(n.version)}</span></div>
+          <div class="wn-ver">${escapeHTML(n.version)}</div>
+          <div class="wn-head">${escapeHTML(n.title)}</div>
           <ul class="wn-list">${(n.items || []).map(t => `<li>${escapeHTML(t)}</li>`).join('')}</ul>
         </div>`).join('');
       const back = document.createElement('div');
@@ -36,14 +37,19 @@ PN.ui = (function () {
         <div class="modal wn-modal">
           <h3>${escapeHTML(title)}</h3>
           <div class="modal-body">${body}</div>
-          <div class="modal-foot"><button class="bar-btn primary" data-act="ok">${escapeHTML(ok)}</button></div>
+          <div class="modal-foot">
+            ${cancel ? `<button class="bar-btn ghost" data-act="cancel">${escapeHTML(cancel)}</button>` : ''}
+            <button class="bar-btn primary" data-act="ok">${escapeHTML(ok)}</button>
+          </div>
         </div>`;
       document.getElementById('modal-root').appendChild(back);
-      const close = () => { back.remove(); resolve(true); };
+      const close = (v) => { back.remove(); resolve(v); };
       back.addEventListener('click', (e) => {
-        if (e.target === back || e.target.getAttribute('data-act') === 'ok') close();
+        const act = e.target.getAttribute('data-act');
+        if (act === 'ok') close(true);
+        else if (act === 'cancel' || e.target === back) close(!cancel);
       });
-      back.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+      back.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(!cancel); });
     });
   }
 
