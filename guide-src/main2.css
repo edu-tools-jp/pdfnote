@@ -41,7 +41,7 @@ b,strong{ font-weight:900; }
 .head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:5.5mm;
        border-bottom:.6mm solid var(--ink); padding-bottom:3.4mm; }
 .brand{ display:flex; align-items:center; gap:3mm; }
-.brand .logo{ width:12mm; height:12mm; border-radius:2.6mm; }
+.brand .logo{ width:12mm; height:12mm; display:block; }
 .brand .bn{ font-size:16pt; font-weight:900; letter-spacing:.01em; line-height:1.2; }
 .brand .bs{ font-size:8pt; color:var(--muted); letter-spacing:.04em; }
 .upd{ display:flex; align-items:center; gap:1.8mm; background:var(--red-l);
@@ -56,30 +56,26 @@ b,strong{ font-weight:900; }
 .hero-t .u{ background:linear-gradient(transparent 64%, #ffe08a 64%, #ffe08a 94%, transparent 94%); padding:0 .4mm; }
 .hero-p{ font-size:8.8pt; line-height:1.85; color:var(--ink-2); margin-bottom:3.4mm; }
 .pills{ display:flex; flex-direction:column; gap:1.4mm; }
-.pills .p{ display:flex; gap:2mm; align-items:center; font-size:8.2pt; font-weight:900; }
+.pills .p{ display:flex; gap:2mm; align-items:baseline; font-size:8.2pt; font-weight:900;
+  white-space:nowrap; }
+.pills .p em{ white-space:normal; }
 .pills .p .ci{ width:5mm; height:5mm; border-radius:1.4mm; background:var(--blue); color:#fff;
   display:flex; align-items:center; justify-content:center; flex:none; }
 .pills .p .ci .ic{ width:3.2mm; height:3.2mm; stroke-width:2.2; }
 .pills .p em{ font-style:normal; font-weight:400; color:var(--muted); font-size:7.6pt; }
 
-.mock{ width:88mm; flex:none; border-radius:2.4mm; overflow:hidden; border:.45mm solid #454e63; background:var(--panel); }
-.mock-bar{ padding:1.6mm 2mm; display:flex; align-items:center; gap:1.2mm; border-bottom:.35mm solid #454e63; }
-.tb{ display:inline-flex; flex-direction:column; align-items:center; justify-content:center;
-  width:9.6mm; height:8.4mm; border-radius:1.6mm; background:var(--panel-2); color:#e8ecf4;
-  border:.35mm solid #454e63; flex:none; gap:.2mm; }
-.tb .ic{ width:3.4mm; height:3.4mm; stroke-width:2; }
-.tb span{ font-size:4.6pt; line-height:1; }
-.tb.on{ background:var(--blue); border-color:var(--blue); }
-.mock-body{ background:#171b24; padding:2.6mm; display:flex; justify-content:center; }
-.sheet{ width:100%; background:#fff; border-radius:.8mm; padding:3mm 3.6mm; position:relative; }
-.sheet-h{ font-size:6.8pt; font-weight:900; border-bottom:.35mm solid #c9d3e3; padding-bottom:1mm; margin-bottom:2mm; }
-.ln{ height:1.2mm; background:#dbe2ee; border-radius:1mm; margin-bottom:1.9mm; }
-.mask-demo{ position:absolute; background:var(--red); color:#fff; font-size:6pt; font-weight:900;
-  border-radius:.8mm; display:flex; align-items:center; justify-content:center; letter-spacing:.06em; }
-.tbox-demo{ position:absolute; border:.35mm dashed var(--blue); border-radius:.8mm;
-  color:var(--blue-d); font-size:6pt; font-weight:900; padding:.5mm 1.2mm; background:#fff; }
-.scrib{ position:absolute; inset:0; }
-.mock-foot{ color:#9aa3b6; font-size:5.8pt; text-align:center; padding:1.3mm; letter-spacing:.06em; }
+.shot{ width:100mm; flex:none; }
+.shot img{ display:block; width:100%; border-radius:2.4mm; border:.45mm solid #454e63; }
+.shot figcaption{ color:var(--muted); font-size:7pt; text-align:center; margin-top:1.6mm; }
+
+.uh3{ font-size:8.6pt; font-weight:900; margin:3mm 0 1.4mm; }
+.uh3 span{ font-size:7.2pt; font-weight:400; color:var(--muted); margin-left:1.2mm; }
+.ur0{ font-size:7.4pt; line-height:1.6; color:var(--ink-2); margin-bottom:.6mm; }
+.ur{ font-size:7.4pt; line-height:1.6; color:var(--ink-2); margin-bottom:.8mm; }
+.ub{ display:inline-block; font-size:6.6pt; font-weight:900; color:#fff; background:var(--blue-d);
+     border-radius:1mm; padding:0 1.6mm; margin-right:1.4mm; }
+.ub.edge{ background:var(--green); }
+.un{ font-size:7.2pt; line-height:1.55; color:var(--muted); margin-top:1mm; }
 
 /* ---------- 今回のアップデート ---------- */
 .news{ border:.5mm solid #f3c4bb; background:var(--red-l); border-radius:2.6mm;
@@ -107,6 +103,12 @@ b,strong{ font-weight:900; }
 .gi .d{ font-size:7.2pt; color:var(--muted); line-height:1.5; }
 
 /* ---------- 道具ずかん（横一列） ---------- */
+.tb{ display:inline-flex; flex-direction:column; align-items:center; justify-content:center;
+  width:9.6mm; height:8.4mm; border-radius:1.6mm; background:var(--panel-2); color:#e8ecf4;
+  border:.35mm solid #454e63; flex:none; gap:.2mm; }
+.tb .ic{ width:3.4mm; height:3.4mm; stroke-width:2; }
+.tb span{ font-size:4.6pt; line-height:1; }
+.tb.on{ background:var(--blue); border-color:var(--blue); }
 .tools{ display:flex; gap:1.4mm; justify-content:space-between; margin-bottom:2.6mm; }
 .tool{ flex:1; text-align:center; }
 .tool .tb{ width:100%; height:10mm; border-radius:2mm; }
@@ -157,7 +159,7 @@ b,strong{ font-weight:900; }
 
 .closing{ border-radius:2.6mm; background:var(--panel); color:#e8ecf4;
   padding:4mm 5mm; display:flex; align-items:center; gap:4.5mm; }
-.closing .lg{ width:13mm; height:13mm; border-radius:2.8mm; flex:none; }
+.closing .lg{ width:13mm; height:13mm; display:block; flex:none; }
 .closing .t{ font-size:10.5pt; font-weight:900; line-height:1.5; }
 .closing .d{ font-size:7.6pt; color:#9aa3b6; line-height:1.65; margin-top:.8mm; }
 

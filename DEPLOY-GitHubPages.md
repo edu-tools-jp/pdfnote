@@ -29,7 +29,8 @@ edutools/
     ├── index.html
     ├── service-worker.js
     ├── manifest.webmanifest
-    ├── icon.svg
+    ├── icon-192.png / icon-512.png / icon-maskable.png
+    ├── apple-touch-icon.png
     ├── js/ …
     └── vendor/ …
 ```
