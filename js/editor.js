@@ -228,6 +228,7 @@ PN.editor = (function () {
     $('#ed-page-list').addEventListener('click', () => PN.pages.open());
     $('#ed-image').addEventListener('click', (e) => imageMenu(e.currentTarget));
     try { fingerDraw = localStorage.getItem(FINGER_DRAW_KEY) === '1'; } catch (e) {}
+    try { snapShapes = localStorage.getItem(SHAPE_KEY) !== '0'; } catch (e) {}
     buildLassoControls();
     $('#ed-settings').addEventListener('click', (e) => settingsMenu(e.currentTarget));
   }
@@ -462,6 +463,134 @@ PN.editor = (function () {
     clearCtx(pv.ink, pv.inkctx);
     annOf(pv.idx).strokes.forEach(s => drawStroke(pv.inkctx, s, pv));
   }
+  /* ========== 押さえたままで、形をきれいにする ==========
+     ペンで書いたあと、画面から離さずにその場で止めていると、
+     直線・丸・四角・三角に見えるものをきれいな形に直す。
+     まぎらわしいものは直さない（間違って直すより、そのままの方がよいため）。 */
+  const SHAPE_HOLD_MS = 700;      // これだけ止めていたら直す
+  const SHAPE_MOVE_TOL = 3;       // これ以下の動きは「止まっている」とみなす
+  const SHAPE_KEY = 'pdfnote.snapShapes';
+  let snapShapes = true;
+
+  /* 点と線分の距離（点は [x, y] で渡す） */
+  function ptSegDist(p, a, b) {
+    const vx = b[0] - a[0], vy = b[1] - a[1];
+    const L = vx * vx + vy * vy;
+    let t = L ? ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / L : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p[0] - (a[0] + t * vx), p[1] - (a[1] + t * vy));
+  }
+  /* 線を、形が変わらない程度に間引く（Ramer–Douglas–Peucker） */
+  function rdp(P, eps) {
+    if (P.length < 3) return P.slice();
+    let idx = -1, max = 0;
+    for (let i = 1; i < P.length - 1; i++) {
+      const d = ptSegDist(P[i], P[0], P[P.length - 1]);
+      if (d > max) { max = d; idx = i; }
+    }
+    if (max <= eps) return [P[0], P[P.length - 1]];
+    return rdp(P.slice(0, idx + 1), eps).slice(0, -1).concat(rdp(P.slice(idx), eps));
+  }
+  /* 閉じた線から「角」をさがす（ほぼまっすぐな所は角とみなさない） */
+  function cornersOf(P, tol) {
+    const s = rdp(P, tol);
+    if (s.length > 3 && Math.hypot(s[0][0] - s[s.length - 1][0], s[0][1] - s[s.length - 1][1]) < tol * 2) s.pop();
+    const out = [];
+    for (let i = 0; i < s.length; i++) {
+      const p = s[(i - 1 + s.length) % s.length], q = s[i], r = s[(i + 1) % s.length];
+      let d = Math.abs(Math.atan2(r[1] - q[1], r[0] - q[0]) - Math.atan2(q[1] - p[1], q[0] - p[0]));
+      if (d > Math.PI) d = Math.PI * 2 - d;
+      if (d > 0.5) out.push(q);      // 約29度以上曲がっていれば角
+    }
+    return out;
+  }
+
+  /* 書いた線を見て、きれいな形の点を返す。どれにも見えなければ null */
+  function recognizeShape(pts) {
+    if (!pts || pts.length < 8) return null;
+    const P = pts.map(p => [p[0], p[1]]);
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, len = 0;
+    for (let i = 0; i < P.length; i++) {
+      const p = P[i];
+      if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0];
+      if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1];
+      if (i) len += Math.hypot(p[0] - P[i - 1][0], p[1] - P[i - 1][1]);
+    }
+    const w = x1 - x0, h = y1 - y0, diag = Math.hypot(w, h);
+    if (diag < 24 || len < diag * 0.7) return null;        // 小さすぎる・短すぎる
+
+    const A = P[0], B = P[P.length - 1];
+    const span = Math.hypot(B[0] - A[0], B[1] - A[1]);
+
+    // ---- 直線：始めと終わりを結んだ線から、どれだけ外れているか ----
+    if (span > diag * 0.8) {
+      let dev = 0;
+      for (const p of P) { const d = ptSegDist(p, A, B); if (d > dev) dev = d; }
+      if (dev <= Math.max(2, span * 0.07)) return [A, B];
+    }
+
+    // ---- ここから先は「閉じた形」だけ ----
+    if (span > Math.max(10, diag * 0.34)) return null;     // 始点と終点が離れている
+    if (w < diag * 0.12 || h < diag * 0.12) return null;   // つぶれすぎ
+
+    /* 四角と丸は取り違えやすいので、しきい値は計算して決めてある。
+       ・囲む四角で正規化した「中心からの距離」のばらつき（cv）は、
+         きれいな丸で 0、四角では 0.110。→ 丸とみなすのは 0.09 未満。
+       ・「囲む四角の辺までの距離」は、丸では平均 0.035×対角・最大 0.104×対角。
+         → 四角とみなすのは 平均 0.022×対角 未満かつ 最大 0.06×対角 未満。
+       どちらの向きにも十分な余裕があるので、取り違えない。 */
+
+    // ---- 四角：すべての点が、囲む四角の辺の近くにあるか ----
+    let far = 0, sumd = 0;
+    for (const p of P) {
+      const d = Math.min(Math.abs(p[0] - x0), Math.abs(p[0] - x1), Math.abs(p[1] - y0), Math.abs(p[1] - y1));
+      sumd += d; if (d > far) far = d;
+    }
+    if (sumd / P.length < diag * 0.022 && far < diag * 0.06) {
+      return [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+    }
+
+    // ---- 丸（楕円）：中心からの距離のばらつきが小さいか ----
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rx = w / 2, ry = h / 2;
+    let sum = 0;
+    const rs = P.map(p => { const r = Math.hypot((p[0] - cx) / rx, (p[1] - cy) / ry); sum += r; return r; });
+    const mean = sum / rs.length;
+    let vs = 0; for (const r of rs) vs += (r - mean) * (r - mean);
+    if (Math.sqrt(vs / rs.length) / (mean || 1) < 0.09) {
+      const out = [];
+      for (let i = 0; i <= 64; i++) {
+        const a = (i / 64) * Math.PI * 2;
+        out.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]);
+      }
+      return out;
+    }
+
+    // ---- 角の数で見分ける（傾いた四角もここで拾う） ----
+    const c = cornersOf(P, diag * 0.07);
+    if (c.length === 3) return [c[0], c[1], c[2], c[0]];
+    if (c.length === 4) return [c[0], c[1], c[2], c[3], c[0]];
+    return null;
+  }
+
+  /* 止まっているのを見張る。動くたびに数え直す */
+  function armShapeHold(g) {
+    if (!snapShapes || !g || g.type !== 'pen') return;
+    clearTimeout(g.holdTimer);
+    g.holdTimer = setTimeout(() => snapGestureShape(g), SHAPE_HOLD_MS);
+  }
+  function snapGestureShape(g) {
+    if (!gesture || gesture !== g || g.snapped) return;
+    const shape = recognizeShape(g.points);
+    if (!shape) return;
+    let pr = 0; g.points.forEach(p => { pr += (p[2] > 0 ? p[2] : 0.5); });
+    pr = g.points.length ? pr / g.points.length : 0.5;
+    g.points = shape.map(p => [p[0], p[1], pr]);   // 太さはならす（形がきれいに見えるように）
+    g.snapped = true;
+    const pv = g.pv;
+    clearCtx(pv.live, pv.livectx); liveDrawnUpTo = 0;
+    drawStroke(pv.livectx, g, pv);
+  }
+
   function drawStroke(ctx, s, pv) {
     const pts = s.points; if (!pts || !pts.length) return;
     ctx.strokeStyle = s.color; ctx.fillStyle = s.color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -1516,6 +1645,8 @@ PN.editor = (function () {
     if (tool === 'eraser') { gesture = Object.assign(common, { type: 'erase', before: structuredClone(annOf(pv.idx)), changed: false }); eraseAt(pv, x, y); return; }
     const p = (e.pressure && e.pressure > 0) ? e.pressure : (e.pointerType === 'pen' ? 0 : 0.5);
     gesture = Object.assign(common, { type: tool, color, width: WIDTHS[widthIdx], points: [[x, y, p]] });
+    gesture.holdAt = [x, y];
+    armShapeHold(gesture);
   }
   function onMove(e, pv) {
     if (!gesture || gesture.pv !== pv) return;
@@ -1527,9 +1658,16 @@ PN.editor = (function () {
       return;
     }
     if (gesture.type === 'pen') {
+      if (gesture.snapped) return;          // すでにきれいな形にした。あとは離すだけ
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       evs.forEach(ev => { const [x, y] = toIntrinsic(ev, pv); const p = (ev.pressure && ev.pressure > 0) ? ev.pressure : 0.5; gesture.points.push([x, y, p]); });
       drawLiveIncremental(pv);
+      // ペンを動かしたら、止まっている時間を数え直す
+      const last = gesture.points[gesture.points.length - 1];
+      if (!gesture.holdAt || Math.hypot(last[0] - gesture.holdAt[0], last[1] - gesture.holdAt[1]) > SHAPE_MOVE_TOL) {
+        gesture.holdAt = [last[0], last[1]];
+        armShapeHold(gesture);
+      }
     } else if (gesture.type === 'line') {
       const [x, y] = toIntrinsic(e, pv); gesture.points[1] = [x, y, 0.5];
       clearCtx(pv.live, pv.livectx); drawStroke(pv.livectx, gesture, pv);
@@ -1549,6 +1687,7 @@ PN.editor = (function () {
     if (!gesture || gesture.pv !== pv) return;
     try { pv.live.releasePointerCapture(e.pointerId); } catch (err) {}
     const g = gesture; gesture = null; liveDrawnUpTo = 0;
+    clearTimeout(g.holdTimer);
     if (g.type === 'lasso') {
       clearCtx(pv.live, pv.livectx);
       // ごく小さい囲み＝ただのタップ。選択を解除するだけで、メッセージは出さない
@@ -1619,7 +1758,7 @@ PN.editor = (function () {
 
   /* 進行中の描画を破棄（ピンチ開始時など） */
   function cancelGesture() {
-    if (gesture) { try { gesture.pv.live.releasePointerCapture(gesture.pointerId); } catch (e) {} clearCtx(gesture.pv.live, gesture.pv.livectx); gesture = null; liveDrawnUpTo = 0; }
+    if (gesture) { clearTimeout(gesture.holdTimer); try { gesture.pv.live.releasePointerCapture(gesture.pointerId); } catch (e) {} clearCtx(gesture.pv.live, gesture.pv.livectx); gesture = null; liveDrawnUpTo = 0; }
     if (maskGesture) { try { maskGesture.pv.mask.releasePointerCapture(maskGesture.pointerId); } catch (e) {} if (maskGesture.el) maskGesture.el.remove(); maskGesture = null; }
   }
 
@@ -1908,7 +2047,10 @@ PN.editor = (function () {
     PN.ui.menu(anchor, [
       fingerDraw
         ? { icon: 'check', label: '指だけで操作できるようにする（スクロールは2本指）', onClick: () => setFingerDraw(false) }
-        : { label: '指だけで操作できるようにする（スクロールは2本指）', onClick: () => setFingerDraw(true) }
+        : { label: '指だけで操作できるようにする（スクロールは2本指）', onClick: () => setFingerDraw(true) },
+      snapShapes
+        ? { icon: 'check', label: '押さえたままで図形をきれいにする', onClick: () => setSnapShapes(false) }
+        : { label: '押さえたままで図形をきれいにする', onClick: () => setSnapShapes(true) }
     ]);
   }
   function setFingerDraw(on) {
@@ -1916,6 +2058,12 @@ PN.editor = (function () {
     try { localStorage.setItem(FINGER_DRAW_KEY, on ? '1' : '0'); } catch (e) {}
     PN.ui.toast(on ? '指だけで操作できるようにしました。画面のスクロールは2本指で行います。'
                    : 'タッチペンで操作します。1本指では画面がスクロールします。', 6000);
+  }
+  function setSnapShapes(on) {
+    snapShapes = !!on;
+    try { localStorage.setItem(SHAPE_KEY, on ? '1' : '0'); } catch (e) {}
+    PN.ui.toast(on ? 'ペンで書いたあと、離さずに押さえたままにすると、直線・丸・四角・三角をきれいに直します。'
+                   : '書いた線は、そのままの形で残します。', 6000);
   }
 
   /* ---------- サムネイル（一覧用 thumb.png） ---------- */
