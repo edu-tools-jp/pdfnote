@@ -216,6 +216,50 @@ PN.ui = (function () {
     placeNear(box, anchorEl);
   }
 
+  /* ---------- ページを追加 ----------
+     どこに入れるか（前・後・最後）と、何を入れるか（白紙・画像・写真・PDF）を選ぶ。
+     入れる物を押した時点で決まり。{ where, how } を返す（やめたら null）。 */
+  function addPage(opts) {
+    opts = opts || {};
+    return new Promise((resolve) => {
+      let where = opts.hasPages ? 'after' : 'end';
+      const back = document.createElement('div');
+      back.className = 'modal-back';
+      const pos = opts.hasPages ? `
+        <div class="ap-seg" role="group" aria-label="どこに追加するか">
+          <button type="button" data-w="before">前に</button>
+          <button type="button" data-w="after" class="on">後に</button>
+          <button type="button" data-w="end">最後に</button>
+        </div>` : '';
+      back.innerHTML = `
+        <div class="modal ap-modal">
+          <h3>ページを追加</h3>
+          ${pos}
+          <div class="ap-list">
+            <button type="button" class="ap-item" data-how="blank">${icon('note-plus')}<span><b>白紙のページ</b><small>いまのページと同じ大きさ</small></span></button>
+            <button type="button" class="ap-item" data-how="image">${icon('image')}<span><b>画像を選ぶ</b><small>写真やスクリーンショットから</small></span></button>
+            <button type="button" class="ap-item" data-how="camera">${icon('camera')}<span><b>写真を撮る</b><small>黒板やプリントをその場で</small></span></button>
+            <button type="button" class="ap-item" data-how="pdf">${icon('add-page')}<span><b>PDFを読み込む</b><small>配付プリントのPDF</small></span></button>
+          </div>
+          <div class="modal-foot"><button type="button" class="bar-btn ghost" data-act="cancel">やめる</button></div>
+        </div>`;
+      const done = (v) => { back.remove(); resolve(v); };
+      back.addEventListener('click', (e) => {
+        if (e.target === back) return done(null);
+        const seg = e.target.closest('.ap-seg button');
+        if (seg) {
+          where = seg.dataset.w;
+          back.querySelectorAll('.ap-seg button').forEach(b => b.classList.toggle('on', b === seg));
+          return;
+        }
+        const item = e.target.closest('.ap-item');
+        if (item) return done({ where, how: item.dataset.how });
+        if (e.target.closest('[data-act="cancel"]')) return done(null);
+      });
+      document.getElementById('modal-root').appendChild(back);
+    });
+  }
+
   /* ---------- 色えらび（プリセット／カスタム） ----------
      色のボタンをもう一度押したときに開く。選ぶとその場で色が変わる。 */
   const CP_PRESET = [
@@ -393,5 +437,5 @@ PN.ui = (function () {
   }
   const escapeAttr = escapeHTML;
 
-  return { toast, busy, confirm, info, form, choose, menu, colorPicker, widthPicker, escapeHTML, icon };
+  return { toast, busy, confirm, info, form, choose, menu, addPage, colorPicker, widthPicker, escapeHTML, icon };
 })();

@@ -261,7 +261,7 @@ PN.editor = (function () {
     $('#ed-zoom-fit').addEventListener('click', () => setZoom(1));
     $('#ed-reveal-all').addEventListener('click', () => setAllMasks(true));
     $('#ed-hide-all').addEventListener('click', () => setAllMasks(false));
-    $('#ed-add-page').addEventListener('click', () => PN.app.pickFilesForCurrentNotebook());
+    $('#ed-add-page').addEventListener('click', addPageDialog);
     $('#ed-page-list').addEventListener('click', () => PN.pages.open());
     $('#ed-image').addEventListener('click', (e) => imageMenu(e.currentTarget));
     try { fingerDraw = localStorage.getItem(FINGER_DRAW_KEY) === '1'; } catch (e) {}
@@ -473,6 +473,14 @@ PN.editor = (function () {
         pv.bg.style.width = pv.cssW + 'px'; pv.bg.style.height = pv.cssH + 'px';
         pv.bgctx.setTransform(1, 0, 0, 1, 0, 0);
         pv.bgctx.drawImage(off, 0, 0);
+        ok = true;
+      } else if (p.type === 'blank') {
+        // 白紙のページ。まっ白に塗るだけ
+        const r = Math.max(0.05, Math.min(dprv(), MAX_DIM / pv.cssW, MAX_DIM / pv.cssH));
+        pv.bg.width = Math.max(1, Math.round(pv.cssW * r)); pv.bg.height = Math.max(1, Math.round(pv.cssH * r));
+        pv.bg.style.width = pv.cssW + 'px'; pv.bg.style.height = pv.cssH + 'px';
+        pv.bgctx.setTransform(1, 0, 0, 1, 0, 0);
+        pv.bgctx.fillStyle = '#fff'; pv.bgctx.fillRect(0, 0, pv.bg.width, pv.bg.height);
         ok = true;
       } else {
         const img = await getImage(p.asset); if (token !== pv.renderToken) return;
@@ -888,7 +896,8 @@ PN.editor = (function () {
   }
 
   /* ---- カメラで撮る ---- */
-  async function captureFromCamera() {
+  /* onShot を渡すと、撮った写真の使い道を変えられる（既定はページの上に置く） */
+  async function captureFromCamera(onShot) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       PN.ui.toast('このブラウザではカメラを使えません'); return;
     }
@@ -923,7 +932,7 @@ PN.editor = (function () {
         cv.getContext('2d').drawImage(video, 0, 0, cv.width, cv.height);
         close();
         const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.9));
-        if (blob) { blob.name = 'photo.jpg'; await placeImageOnPage(blob); }
+        if (blob) { blob.name = 'photo.jpg'; await (onShot ? onShot(blob) : placeImageOnPage(blob)); }
       }
     });
   }
@@ -2128,8 +2137,17 @@ PN.editor = (function () {
   }
 
   /* ---------- ページ追加 ---------- */
+  /* 追加する位置を、いまのページから決める。
+     'before' = 今のページの前 / 'after' = 今のページの後ろ / 'end' = 最後 */
+  function insertIndexFor(position, len) {
+    if (!len) return 0;
+    if (position === 'before') return Math.max(0, Math.min(currentIdx, len));
+    if (position === 'after') return Math.max(0, Math.min(currentIdx + 1, len));
+    return len;
+  }
+
   async function addFiles(files, position) {
-    // position: 'after'（今のページの直後） | 'end'（最後）。未指定は 'end'
+    // position: 'before' | 'after' | 'end'（未指定は 'end'）
     if (!nb) return;
     PN.ui.busy(true, 'ファイルを取り込み中…');
     const startLen = nb.pages.length;
@@ -2143,11 +2161,10 @@ PN.editor = (function () {
     PN.ui.busy(false);
     const added = nb.pages.length - startLen;
     if (added) {
-      let insertAt = startLen;  // 末尾（既定）
-      if (position === 'after' && startLen > 0) {
+      let insertAt = insertIndexFor(position, startLen);
+      if (insertAt < startLen) {
         const moved = nb.pages.splice(startLen, added);       // 末尾に付いた新ページを取り出す
-        insertAt = Math.min(currentIdx + 1, startLen);
-        nb.pages.splice(insertAt, 0, ...moved);                // 今のページの直後へ挿入
+        nb.pages.splice(insertAt, 0, ...moved);                // 決めた位置へ入れ直す
       }
       structureDirty = true; await saveNow();
       elNoPages.hidden = true; elScroller.style.display = '';
@@ -2156,6 +2173,36 @@ PN.editor = (function () {
       PN.ui.toast(added + ' ページを追加しました');
     }
   }
+  /* 白紙のページを足す。大きさは今のページに合わせる（無ければA4たて） */
+  async function addBlankPage(position) {
+    if (!nb) return;
+    const cur = nb.pages[currentIdx];
+    let w = 595.28, h = 841.89;                       // A4たて（pt）
+    if (cur) {
+      // 画像のページは96dpi前提なので pt に直してそろえる
+      const k = (cur.type === 'image') ? 0.75 : 1;
+      w = Math.round(cur.baseW * k * 100) / 100; h = Math.round(cur.baseH * k * 100) / 100;
+    }
+    const page = { id: 'pg-' + Date.now(), type: 'blank', baseW: w, baseH: h,
+      annotations: { strokes: [], masks: [], texts: [], images: [] } };
+    const at = insertIndexFor(position, nb.pages.length);
+    nb.pages.splice(at, 0, page);
+    structureDirty = true; await saveNow();
+    elNoPages.hidden = true; elScroller.style.display = '';
+    buildPages(); renderVisible(); updateCurrent();
+    if (pageViews[at]) pageViews[at].el.scrollIntoView({ block: 'start' });
+    PN.ui.toast('白紙のページを追加しました');
+  }
+
+  /* 「ページ追加」ボタン：どこに・何を入れるかを選ぶ */
+  async function addPageDialog() {
+    const r = await PN.ui.addPage({ hasPages: !!(nb && nb.pages.length) });
+    if (!r) return;
+    if (r.how === 'blank') return addBlankPage(r.where);
+    if (r.how === 'camera') return captureFromCamera(async (blob) => { await addFiles([blob], r.where); });
+    PN.app.pickFilesForCurrentNotebook(r.where, r.how);   // 'image' | 'pdf'
+  }
+
   async function addPdf(file) {
     const buf = await file.arrayBuffer();
     const asset = await PN.storage.addAsset(nb.id, new Blob([buf], { type: 'application/pdf' }), 'pdf');
@@ -2213,6 +2260,10 @@ PN.editor = (function () {
       canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    } else if (def.type === 'blank') {
+      const scale = targetW / def.baseW;
+      canvas.width = Math.round(def.baseW * scale); canvas.height = Math.round(def.baseH * scale);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     } else {
       const img = await getImage(def.asset), scale = targetW / def.baseW;
       canvas.width = Math.round(def.baseW * scale); canvas.height = Math.round(def.baseH * scale);
@@ -2247,6 +2298,9 @@ PN.editor = (function () {
       canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    } else if (def.type === 'blank') {
+      canvas.width = Math.round(def.baseW * scale); canvas.height = Math.round(def.baseH * scale);
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
     } else {
       const img = await getImage(def.asset);
       canvas.width = Math.round(def.baseW * scale); canvas.height = Math.round(def.baseH * scale);
@@ -2373,8 +2427,10 @@ PN.editor = (function () {
         const targetW = Math.min(2200, Math.max(1000, Math.round(def.baseW * 2)));
         const canvas = await composePage(def, targetW, { ink: true, masks: true });
         // PDFのページ寸法（pt, 72dpi）。PDFページは baseW/H がpt。画像は96dpi前提で pt換算
-        const wpt = def.type === 'pdf' ? def.baseW : def.baseW * 0.75;
-        const hpt = def.type === 'pdf' ? def.baseH : def.baseH * 0.75;
+        // PDFと白紙は baseW/H が pt。画像は96dpi前提で pt換算
+        const inPt = (def.type === 'pdf' || def.type === 'blank');
+        const wpt = inPt ? def.baseW : def.baseW * 0.75;
+        const hpt = inPt ? def.baseH : def.baseH * 0.75;
         const jpg = canvas.toDataURL('image/jpeg', 0.85);
         if (!pdf) pdf = new jsPDFctor({ unit: 'pt', format: [wpt, hpt], compress: true });
         else pdf.addPage([wpt, hpt]);
@@ -2437,7 +2493,7 @@ PN.editor = (function () {
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
   return {
-    init, open, close, flushSave, addFiles, placeImage: placeImageOnPage,
+    init, open, close, flushSave, addFiles, addPageDialog, placeImage: placeImageOnPage,
     getPages, getCurrentIndex, gotoPageId, composePage,
     reorderPages, deletePagesByIds, duplicatePagesByIds, exportPagesToPdf
   };
