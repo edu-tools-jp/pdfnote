@@ -128,7 +128,11 @@ PN.editor = (function () {
     $('#grp-mask').hidden = (t !== 'mask');
     $('#grp-text').hidden = (t !== 'text');
     $('#grp-lasso').hidden = (t !== 'lasso');
-    if (t !== 'text') selText = null;
+    if (t !== 'text') {
+      selText = null;
+      // 「文字」から離れるときに、書かないまま残った空の箱を片づける
+      if (nb && nb.pages.length) pageViews.forEach(pv => dropEmptyTexts(pv));
+    }
     if (t !== 'image') selImg = null;
     if (t !== 'lasso') clearLasso();
     pageViews.forEach(pv => { renderTexts(pv); renderImages(pv); });
@@ -186,6 +190,7 @@ PN.editor = (function () {
   async function flushSave() { if (dirty || viewDirty) await saveNow(); }
   async function close() {
     stopGlide();
+    if (nb && nb.pages.length) pageViews.forEach(pv => dropEmptyTexts(pv));   // 空の箱は残さない
     await flushSave();
     if (immersive) { ed.classList.remove('immersive'); elExit.hidden = true; immersive = false; }
     imgUrls.forEach(u => URL.revokeObjectURL(u)); imgUrls = []; pdfCache = {}; imgCache = {};
@@ -799,19 +804,12 @@ PN.editor = (function () {
   function wireTextBox(pv, el, idx, body, mv, del, rs) {
     body.addEventListener('pointerdown', (e) => { e.stopPropagation(); selectText(pv, idx); });
     body.addEventListener('input', () => { textsOf(pv.idx)[idx].text = body.innerText; markDirty(); });
-    body.addEventListener('blur', () => {
-      // 一瞬だけ焦点が外れて、すぐ戻ってくることがある。1回待ってから確かめる
-      setTimeout(() => {
-        if (!nb || !nb.pages[pv.idx]) return;   // ノートを閉じたあと・ページが無くなったあとは何もしない
-        if (document.activeElement === body) return;
-        const t = textsOf(pv.idx)[idx];
-        if (t && !(t.text || '').trim()) {      // 空のまま離れたら消す
-          textsOf(pv.idx).splice(idx, 1);
-          if (selText && selText.pv === pv && selText.idx === idx) selText = null;
-          renderTexts(pv); markDirty();
-        }
-      }, 0);
-    });
+    // 焦点が当たったら、キーボードが出ても画面が動かないよう位置を押さえる
+    body.addEventListener('focus', holdViewForKeyboard);
+    // ※ 空の箱は blur では消さない（キーボードの出入りでも外れてしまうため）。
+    //    dropEmptyTexts で、作り直すとき・道具を変えるとき・閉じるときに片づける。
+    // つまみを押しても、入力中の焦点が外れないようにする
+    [mv, del, rs].forEach(btn => btn.addEventListener('mousedown', (e) => e.preventDefault()));
     del.addEventListener('pointerdown', (e) => e.stopPropagation());
     del.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -879,12 +877,13 @@ PN.editor = (function () {
     if (tool !== 'text' || suppressDraw) return;
     if (penOnly() && e.pointerType === 'touch') return;
     if (e.target.closest('.textbox')) return;      // 既存のボックス上なら何もしない
-    /* ペンや指でタップすると、ブラウザはこのあと mousedown を追加で送ってくる。
-       そのままだと、できたばかりの箱の「移動」つまみに焦点が移り、
-       中身が空のまま離れたとみなされて箱が消えてしまう。既定の動作を止めて防ぐ。 */
+    /* ペンや指でタップすると、ブラウザはこのあと mousedown・click を追加で送ってくる。
+       できたばかりの箱の左上には「移動」つまみ、右上には × があるため、
+       そのままだと押したことになってしまう。既定の動作を止めて防ぐ。 */
     e.preventDefault();
     const [x, y] = toIntrinsic(e, pv);
     pushUndo(pv.idx);
+    dropEmptyTexts(pv);              // 書かないまま残っていた箱をここで片づける
     // 縦書きなら縦長、横書きなら横長の箱で作る
     const longSide = 260, shortSide = Math.max(40, textStyle.size * 2);
     const bw = textStyle.vertical ? shortSide : longSide;
@@ -900,9 +899,69 @@ PN.editor = (function () {
     selText = { pv, idx: arr.length - 1 };
     renderTexts(pv);
     markDirty();
-    // 作った直後に入力できるようにする
+
+    /* すぐに入力できるようにする。
+       preventScroll:true ＝ 焦点を当てたせいで画面が動くのを止める。
+       setTimeout ではなくその場で当てるので、あとから来る操作に邪魔されない。 */
     const el = pv.text.querySelector('.textbox[data-idx="' + (arr.length - 1) + '"] .tb-body');
-    if (el) setTimeout(() => el.focus(), 0);
+    if (el) {
+      focusTextBody(el);
+      // 念のため、次の描画のあとにもう一度確かめる（何かに取られていたら戻す）
+      requestAnimationFrame(() => { if (el.isConnected && document.activeElement !== el) focusTextBody(el); });
+    }
+
+    /* このあと1回だけ来る「クリック」を食い止める。
+       放っておくと、いま作った箱の「移動」つまみや × の上に落ちてしまう。 */
+    const eatClick = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+    pv.text.addEventListener('click', eatClick, true);
+    setTimeout(() => pv.text.removeEventListener('click', eatClick, true), 700);
+  }
+
+  function focusTextBody(el) {
+    try { el.focus({ preventScroll: true }); } catch (err) { el.focus(); }
+  }
+
+  /* ソフトウェアキーボードが出るとき、ブラウザが「入力中の所を見せよう」として
+     画面を勝手に動かすことがある（タブレットで、書きかけの箱が上へずれて見えなくなる）。
+     焦点が当たってからしばらくの間、元の位置に戻し続けて動かさないようにする。
+     viewport の interactive-widget=overlays-content と合わせた二重の備え。 */
+  let kbHold = null;
+  function holdViewForKeyboard() {
+    if (!elScroller) return;
+    releaseViewHold();
+    const left = elScroller.scrollLeft, top = elScroller.scrollTop;
+    const restore = () => {
+      if (elScroller.scrollLeft !== left) elScroller.scrollLeft = left;
+      if (elScroller.scrollTop !== top) elScroller.scrollTop = top;
+      if (window.scrollX || window.scrollY) window.scrollTo(0, 0);   // ページ全体が動くのも止める
+    };
+    const vv = window.visualViewport;
+    if (vv) vv.addEventListener('resize', restore);
+    const iv = setInterval(restore, 50);     // キーボードが出てくる途中も押さえ続ける
+    const end = setTimeout(releaseViewHold, 1600);
+    kbHold = { iv, end, restore };
+  }
+  /* 先生が自分で動かしはじめたら、押さえるのをやめる */
+  function releaseViewHold() {
+    if (!kbHold) return;
+    clearInterval(kbHold.iv); clearTimeout(kbHold.end);
+    if (window.visualViewport) window.visualViewport.removeEventListener('resize', kbHold.restore);
+    kbHold = null;
+  }
+
+  /* 中身が空のままの箱を片づける。
+     以前は「焦点が外れたら消す」にしていたが、ソフトウェアキーボードの出入りや
+     つまみへの焦点移動でも外れてしまい、書く前に消えることがあった。
+     新しく作るとき・道具を変えるとき・ノートを閉じるときにだけ片づける。 */
+  function dropEmptyTexts(pv) {
+    if (!nb || !nb.pages[pv.idx]) return false;
+    const arr = textsOf(pv.idx);
+    let removed = false;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (!(arr[i].text || '').trim()) { arr.splice(i, 1); removed = true; }
+    }
+    if (removed) { selText = null; renderTexts(pv); }
+    return removed;
   }
 
   /* ========== 投げ縄（なげなわ選択） ========== */
@@ -1442,7 +1501,7 @@ PN.editor = (function () {
   }
 
   /* ---------- ズーム ---------- */
-  function setZoom(z) { stopGlide(); zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)); relayoutAll(); }
+  function setZoom(z) { stopGlide(); releaseViewHold(); zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)); relayoutAll(); }
 
   /* ---------- ページ移動・現在ページ ---------- */
   function goPage(i) { if (!nb || i < 0 || i >= nb.pages.length || !pageViews[i]) return; stopGlide(); pageViews[i].el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
@@ -1585,8 +1644,9 @@ PN.editor = (function () {
   function onTouchMove(e) {
     if (!ptrs.has(e.pointerId)) return;
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (two && ptrs.size >= 2) { moveTwo(); return; }
+    if (two && ptrs.size >= 2) { releaseViewHold(); moveTwo(); return; }
     if (one && e.pointerId === one.id) {
+      releaseViewHold();
       const dx = e.clientX - one.lastX, dy = e.clientY - one.lastY;
       one.lastX = e.clientX; one.lastY = e.clientY; one.moved += Math.abs(dx) + Math.abs(dy);
       trackVelocity(one, dx, dy, nowMs());
