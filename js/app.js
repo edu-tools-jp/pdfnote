@@ -7,7 +7,7 @@ PN.app = (function () {
 
   // ★ 公開のたびに、この値と service-worker.js の VERSION を「同じ値」に変えること。
   //    食い違うと「表示中のファイルが古いようです」の案内が出る（それが食い違い検知のしくみ）。
-  const APP_VERSION = '20260825v';
+  const APP_VERSION = '20260825w';
 
   /* 更新内容は release-notes.json に置く（サーバ上の最新をそのつど読む）。
      公開のたびに、いちばん上へ今回の版の項目を足すこと。 */
