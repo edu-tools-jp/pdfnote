@@ -7,7 +7,7 @@ PN.app = (function () {
 
   // ★ 公開のたびに、この値と service-worker.js の VERSION を「同じ値」に変えること。
   //    食い違うと「表示中のファイルが古いようです」の案内が出る（それが食い違い検知のしくみ）。
-  const APP_VERSION = '20260826m';
+  const APP_VERSION = '20260826n';
 
   /* 更新内容は release-notes.json に置く（サーバ上の最新をそのつど読む）。
      公開のたびに、いちばん上へ今回の版の項目を足すこと。 */
@@ -226,7 +226,7 @@ PN.app = (function () {
   async function openEditor(nb, pickAfter) {
     showOnly('#screen-editor');
     await PN.editor.open(nb);
-    if (pickAfter) pickFilesForCurrentNotebook();
+    if (pickAfter) PN.editor.addPageDialog();   // 新しいノートは、何を入れるかから選ばせる
   }
 
   async function backToLibrary() {
@@ -234,25 +234,18 @@ PN.app = (function () {
     showLibrary();
   }
 
-  async function pickFilesForCurrentNotebook(forcePosition) {
-    // 既にページがある場合は、追加位置（今の直後 / 最後）を選ばせる
-    const pages = PN.editor.getPages ? PN.editor.getPages() : [];
-    if (forcePosition) {
-      pendingAddPosition = forcePosition;
-    } else if (pages.length > 0) {
-      const pos = await PN.ui.choose({
-        title: 'どこにページを追加しますか？',
-        options: [
-          { value: 'after', label: '今のページの直後に追加' },
-          { value: 'end', label: '最後に追加' }
-        ]
-      });
-      if (!pos) return;   // キャンセル
-      pendingAddPosition = pos;
-    } else {
-      pendingAddPosition = 'end';
-    }
-    $('#file-input').click();
+  const PICK_ACCEPT = {
+    image: 'image/png,image/jpeg,image/webp',
+    pdf: 'application/pdf',
+    any: 'application/pdf,image/png,image/jpeg,image/webp'
+  };
+  /* ページに入れるファイルを選ぶ。
+     position: 'before' | 'after' | 'end'、kind: 'image' | 'pdf'（省略で両方） */
+  function pickFilesForCurrentNotebook(position, kind) {
+    pendingAddPosition = position || 'end';
+    const inp = $('#file-input');
+    inp.accept = PICK_ACCEPT[kind] || PICK_ACCEPT.any;
+    inp.click();
   }
 
   return { boot, showLibrary, openEditor, backToLibrary, pickFilesForCurrentNotebook, pickImageForPage };

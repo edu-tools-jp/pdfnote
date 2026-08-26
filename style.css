@@ -373,6 +373,28 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 .lasso-pick input{width:17px; height:17px; accent-color:var(--accent); cursor:pointer;}
 #grp-lasso .bar-btn[disabled]{opacity:.4;}
 
+/* ---------- ページを追加 ---------- */
+.ap-modal{width:min(430px,94vw);}
+.ap-seg{
+  display:flex; gap:4px; background:#0004; border-radius:12px; padding:4px; margin-bottom:14px;
+}
+.ap-seg button{
+  flex:1; padding:10px 4px; font-size:15px; border:0; border-radius:9px;
+  background:#0000; color:var(--ink); cursor:pointer; min-height:44px;
+}
+.ap-seg button.on{background:var(--panel-2); box-shadow:0 1px 3px #0006; font-weight:700;}
+.ap-list{display:flex; flex-direction:column; gap:8px;}
+.ap-item{
+  display:flex; align-items:center; gap:14px; width:100%; text-align:left;
+  padding:12px 14px; border-radius:12px; border:1px solid var(--line);
+  background:var(--panel-2); color:var(--ink); cursor:pointer; min-height:60px;
+}
+.ap-item:hover{filter:brightness(1.12);}
+.ap-item .ic{width:24px; height:24px; flex:none; color:var(--accent);}
+.ap-item span{display:flex; flex-direction:column; gap:3px; min-width:0;}
+.ap-item b{font-size:15.5px; font-weight:700;}
+.ap-item small{font-size:12.5px; color:var(--muted);}
+
 /* ---------- カメラ ---------- */
 .cam-modal{width:min(720px,96vw);}
 .cam-wrap{background:#000; display:flex; align-items:center; justify-content:center; max-height:70vh; overflow:hidden;}

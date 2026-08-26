@@ -19,7 +19,7 @@ PN.pages = (function () {
     countEl = $('#pages-count');
     $('#pages-close').addEventListener('click', close);
     $('#pages-selectall').addEventListener('click', toggleSelectAll);
-    $('#pages-add').addEventListener('click', () => { close(); PN.app.pickFilesForCurrentNotebook(); });
+    $('#pages-add').addEventListener('click', () => { close(); PN.editor.addPageDialog(); });
     $('#pages-delete').addEventListener('click', doDelete);
     $('#pages-copy').addEventListener('click', doCopy);
     $('#pages-export').addEventListener('click', doExport);
