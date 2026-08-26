@@ -44,6 +44,16 @@ PN.editor = (function () {
   const ptrs = new Map();
   let one = null, two = null, suppressDraw = false, lastPinchEnd = 0;
   let immersive = false;
+
+  /* ペンだけで書くモード。
+     penOnlyPref: null = 自動（ペンを検出したら指では書かない）／true・false = 先生が決めた設定
+     アクティブペン（充電式など）は pointerType が 'pen'、指と静電式ペンは 'touch' で届く。 */
+  const PEN_ONLY_KEY = 'pdfnote.penOnly';
+  const PEN_TOLD_KEY = 'pdfnote.penDetectedTold';
+  let penOnlyPref = null;
+  let penSeen = false;
+  const isDrawTool = () => (tool === 'pen' || tool === 'line' || tool === 'eraser');
+  const penOnly = () => (penOnlyPref === null ? penSeen : penOnlyPref);
   let scrollRAF = null;
 
   /* DOM */
@@ -107,6 +117,7 @@ PN.editor = (function () {
     $('#ed-add-page').addEventListener('click', () => PN.app.pickFilesForCurrentNotebook());
     $('#ed-page-list').addEventListener('click', () => PN.pages.open());
     $('#ed-image').addEventListener('click', (e) => imageMenu(e.currentTarget));
+    try { const v = localStorage.getItem(PEN_ONLY_KEY); penOnlyPref = (v === null) ? null : (v === '1'); } catch (e) {}
     buildLassoControls();
     $('#ed-page-menu').addEventListener('click', (e) => pageMenu(e.currentTarget));
   }
@@ -1169,12 +1180,27 @@ PN.editor = (function () {
     return [Math.max(0, Math.min(pv.baseW, x)), Math.max(0, Math.min(pv.baseH, y))];
   }
 
+  /* アクティブペンを初めて検出したとき。自動モードなら、以降は指で書かないことを1度だけ知らせる */
+  function notePenSeen() {
+    if (penSeen) return;
+    penSeen = true;
+    if (penOnlyPref !== null) return;
+    let told = null;
+    try { told = localStorage.getItem(PEN_TOLD_KEY); } catch (e) { return; }
+    if (told) return;
+    try { localStorage.setItem(PEN_TOLD_KEY, '1'); } catch (e) {}
+    PN.ui.toast('タッチペンを検出しました。これからは指では書き込まず、画面のスクロールになります（⋯ メニューで変えられます）。', 7000);
+  }
+
   let liveDrawnUpTo = 0;
   function onDown(e, pv) {
     if (!nb || suppressDraw) return;
     stopGlide();                       // 描き始めたら慣性は止める
     if (gesture) return;                 // 既に1本で描画中：他の指（手のひら等）は無視
     if (tool === 'pan' && e.pointerType === 'touch') return;  // 指の移動は elPages 側で1本指スクロール
+    if (e.pointerType === 'pen') notePenSeen();
+    // ペンだけで書くモードのときは、指・手のひらでは書かない（1本指はスクロールになる）
+    if (penOnly() && e.pointerType === 'touch' && isDrawTool()) return;
     pv.live.setPointerCapture(e.pointerId); liveDrawnUpTo = 0;
     const [x, y] = toIntrinsic(e, pv);
     const common = { pv, pointerId: e.pointerId, downX: e.clientX, downY: e.clientY, downT: Date.now() };
@@ -1431,7 +1457,8 @@ PN.editor = (function () {
 
   /* ---------- 指の操作：1本指スクロール（ビュー道具）＋ 2本指スクロール/ピンチ ---------- */
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-  const isViewTool = () => (tool === 'pan' || tool === 'reveal');   // ペン系以外＝1本指でスクロール
+  // 1本指でスクロールにする場面：移動・めくりの道具、または「ペンだけで書く」が効いているとき
+  const isViewTool = () => (tool === 'pan' || tool === 'reveal' || (penOnly() && isDrawTool()));
 
   function bindTouch() {
     elPages.addEventListener('pointerdown', onTouchDown, true);
@@ -1571,8 +1598,18 @@ PN.editor = (function () {
       { icon: 'arrow-up', label: '今のページを前へ', onClick: () => movePage(-1) },
       { icon: 'arrow-down', label: '今のページを後ろへ', onClick: () => movePage(1) },
       { label: '今のページの書き込みを全消去', onClick: clearPageInk },
-      { label: '今のページを削除', danger: true, onClick: deletePage }
+      { label: '今のページを削除', danger: true, onClick: deletePage },
+      penOnly()
+        ? { icon: 'check', label: 'ペンだけで書く（指はスクロール）', onClick: () => setPenOnly(false) }
+        : { label: 'ペンだけで書く（指はスクロール）', onClick: () => setPenOnly(true) }
     ]);
+  }
+  /* 「ペンだけで書く」を先生が明示的に切り替える（以降は自動判定より優先） */
+  function setPenOnly(on) {
+    penOnlyPref = !!on;
+    try { localStorage.setItem(PEN_ONLY_KEY, on ? '1' : '0'); } catch (e) {}
+    PN.ui.toast(on ? 'ペンだけで書きます。指は画面のスクロールになります。'
+                   : '指でも書けるようにしました（1本指で書き込み、2本指でスクロール）。');
   }
   function movePage(dir) {
     const j = currentIdx + dir; if (j < 0 || j >= nb.pages.length) return;
