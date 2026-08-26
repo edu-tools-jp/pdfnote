@@ -200,6 +200,7 @@ js/ui.js             … モーダル・トーストなどの部品
 js/library.js        … ノート一覧・整理
 js/editor.js         … ページ表示・書き込み
 js/pages.js          … ページ一覧（サムネ・並べ替え・削除/コピー/PDF書き出し）
+guide-src/          … 配付用「かんたんガイド」PDFのもと（作り方は guide-src/README.md）
 js/app.js            … 起動と画面切り替え
 vendor/pdfjs/        … PDF.js（Mozilla, Apache-2.0）PDF 表示ライブラリ
 vendor/jspdf/        … jsPDF（MIT）PDF 書き出しライブラリ
