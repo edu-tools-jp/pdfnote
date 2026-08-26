@@ -146,7 +146,7 @@ PN.library = (function () {
       </div>
       <div class="card-actions">
         <button class="bar-btn primary" data-act="open">開く</button>
-        <button class="bar-btn ghost" data-act="more">⋯</button>
+        <button class="bar-btn ghost icon" data-act="more" title="このフォルダの操作">${PN.ui.icon('more')}</button>
       </div>`;
     el.querySelector('[data-act="open"]').addEventListener('click', () => { currentFolder = f.id; render(); });
     el.querySelector('[data-act="more"]').addEventListener('click', (e) => folderMenu(e.currentTarget, f));
@@ -167,7 +167,7 @@ PN.library = (function () {
       </div>
       <div class="card-actions">
         <button class="bar-btn primary" data-act="open">開く</button>
-        <button class="bar-btn ghost" data-act="more">⋯</button>
+        <button class="bar-btn ghost icon" data-act="more" title="このノートの操作">${PN.ui.icon('more')}</button>
       </div>`;
     el.querySelector('[data-act="open"]').addEventListener('click', () => openNotebook(n.id));
     el.querySelector('[data-act="more"]').addEventListener('click', (e) => cardMenu(e.currentTarget, n));
