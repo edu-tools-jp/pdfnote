@@ -72,9 +72,9 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 /* ページ一覧の選択チェック */
 .pg-check .ic{width:17px; height:17px; stroke-width:2.6;}
 
-/* 全画面中の「メニュー」ボタン */
-.imm-fab{display:inline-flex; align-items:center; gap:8px;}
-.imm-fab .ic{width:20px; height:20px;}
+/* 全画面中に出る「全画面解除」ボタン（右上） */
+.imm-exit{display:inline-flex; align-items:center; gap:8px;}
+.imm-exit .ic{width:20px; height:20px;}
 
 /* テキストボックスの移動つまみ */
 .textbox.editing .tb-move{display:flex; align-items:center; justify-content:center;}
@@ -248,11 +248,11 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 /* 全画面（イマーシブ）モード：上下のバーを隠してPDFを最大化、タップで出し入れ */
 #screen-editor.immersive .editor-bar{position:absolute; top:0; left:0; right:0; z-index:30; transform:translateY(-115%); transition:transform .22s ease; box-shadow:0 6px 24px #000b;}
 #screen-editor.immersive .ed-foot{position:absolute; bottom:0; left:0; right:0; z-index:30; transform:translateY(115%); transition:transform .22s ease; box-shadow:0 -6px 24px #000b;}
-#screen-editor.immersive.palette-open .editor-bar{transform:translateY(0);}
-#screen-editor.immersive.palette-open .ed-foot{transform:translateY(0);}
-.imm-fab{position:absolute; right:16px; bottom:16px; z-index:40; padding:12px 18px; border-radius:999px; border:1px solid var(--line); background:#000c; color:#fff; font-size:16px;}
-#ed-imm-hide{display:none;}
-#screen-editor.immersive #ed-imm-hide{display:inline-flex; align-items:center;}
+.imm-exit{
+  position:absolute; right:16px; top:16px; z-index:40;
+  padding:12px 18px; border-radius:999px; border:1px solid var(--line);
+  background:#000c; color:#fff; font-size:16px;
+}
 
 .mask{
   position:absolute; background:var(--mask-color,#c0392b);
