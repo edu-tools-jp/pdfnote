@@ -988,10 +988,9 @@ PN.editor = (function () {
     markDirty();
   }
 
-  /* 何もない所をタップ＝新しいテキストボックスを作る */
+  /* 何もない所をタップ＝新しいテキストボックスを作る（タッチペンでも指でもよい） */
   function onTextLayerDown(e, pv) {
     if (tool !== 'text' || suppressDraw) return;
-    if (penOnly() && e.pointerType === 'touch') return;
     if (e.target.closest('.textbox')) return;      // 既存のボックス上なら何もしない
     /* ペンや指でタップすると、ブラウザはこのあと mousedown・click を追加で送ってくる。
        できたばかりの箱の左上には「移動」つまみ、右上には × があるため、
@@ -1752,8 +1751,10 @@ PN.editor = (function () {
     /* 指でつかんで動かせるもの（画像・投げ縄の選択枠・テキストボックス）に
        触れたときは、ノートを一緒に動かさない。
        画像や投げ縄で選んでいる間も同じく止めておき、
-       何もない所を1回タップすれば選択が外れて、また指でスクロールできる。 */
-    if (ptrs.size === 1 && isViewTool() && !selImg && !lassoSel && !onGrabbable(e)) {
+       何もない所を1回タップすれば選択が外れて、また指でスクロールできる。
+       「文字」の道具のときは、指はテキストボックスを作る・動かすために使うので
+       1本指ではスクロールしない（画面を動かすときは2本指）。 */
+    if (ptrs.size === 1 && isViewTool() && tool !== 'text' && !selImg && !lassoSel && !onGrabbable(e)) {
       one = { id: e.pointerId, lastX: e.clientX, lastY: e.clientY, moved: 0, vx: 0, vy: 0, lastT: nowMs() };
     }
   }
