@@ -186,7 +186,7 @@ PN.editor = (function () {
   async function close() {
     stopGlide();
     await flushSave();
-    if (immersive) { ed.classList.remove('immersive', 'palette-open'); if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); immersive = false; }
+    if (immersive) { ed.classList.remove('immersive', 'palette-open'); immersive = false; }
     imgUrls.forEach(u => URL.revokeObjectURL(u)); imgUrls = []; pdfCache = {}; imgCache = {};
     elPages.innerHTML = ''; pageViews = []; nb = null;
   }
@@ -1365,10 +1365,6 @@ PN.editor = (function () {
     $('#ed-immersive').addEventListener('click', () => immersive ? exitImmersive() : enterImmersive());
     $('#ed-imm-hide').addEventListener('click', closePalette);
     elFab.addEventListener('click', openPalette);
-    document.addEventListener('fullscreenchange', () => {
-      if (!document.fullscreenElement && immersive) exitImmersive();
-      else if (nb && nb.pages.length) setTimeout(relayoutAll, 60);
-    });
   }
   // 全画面ボタンの見た目を切り替える（アイコンを消さずに中身だけ差し替える）
   function setImmersiveBtn(iconId, label, title) {
@@ -1383,16 +1379,17 @@ PN.editor = (function () {
     ed.classList.add('immersive'); ed.classList.remove('palette-open');
     elFab.hidden = false;
     setImmersiveBtn('#i-exit-full', '全画面解除', '全画面を解除する');
-    const el = document.documentElement; const p = el.requestFullscreen && el.requestFullscreen(); if (p && p.catch) p.catch(() => {});
+    // ブラウザの全画面API（requestFullscreen）は使わない。使うと Chrome が
+    // 「全画面表示を終了するには Esc キーを押します」を毎回出すため。
+    // 上下のメニューはアプリ側で隠しているので、PDF は画面いっぱいに映る。
     updateRouting();
     setTimeout(relayoutAll, 80);
-    PN.ui.toast('終了するには Esc キー、またはタブレットは画面を長押しして × をタップします。', 7000);
+    PN.ui.toast('終了するには、右下の「メニュー」→「全画面解除」を押します（Esc キーでも戻れます）。', 7000);
   }
   function exitImmersive() {
     immersive = false; paletteOpen = false;
     ed.classList.remove('immersive', 'palette-open'); elFab.hidden = true;
     setImmersiveBtn('#i-full', '全画面', '全画面（メニューを隠してPDFを大きく映す）');
-    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen();
     updateRouting();
     setTimeout(relayoutAll, 80);
   }
