@@ -526,7 +526,7 @@ PN.editor = (function () {
     if (span > diag * 0.8) {
       let dev = 0;
       for (const p of P) { const d = ptSegDist(p, A, B); if (d > dev) dev = d; }
-      if (dev <= Math.max(2, span * 0.07)) return [A, B];
+      if (dev <= Math.max(2, span * 0.07)) return { kind: 'line', a: A, b: B };
     }
 
     // ---- ここから先は「閉じた形」だけ ----
@@ -547,7 +547,7 @@ PN.editor = (function () {
       sumd += d; if (d > far) far = d;
     }
     if (sumd / P.length < diag * 0.022 && far < diag * 0.06) {
-      return [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+      return { kind: 'rect', box: { x0, y0, x1, y1 } };
     }
 
     // ---- 丸（楕円）：中心からの距離のばらつきが小さいか ----
@@ -556,20 +556,29 @@ PN.editor = (function () {
     const rs = P.map(p => { const r = Math.hypot((p[0] - cx) / rx, (p[1] - cy) / ry); sum += r; return r; });
     const mean = sum / rs.length;
     let vs = 0; for (const r of rs) vs += (r - mean) * (r - mean);
-    if (Math.sqrt(vs / rs.length) / (mean || 1) < 0.09) {
-      const out = [];
-      for (let i = 0; i <= 64; i++) {
-        const a = (i / 64) * Math.PI * 2;
-        out.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]);
-      }
-      return out;
-    }
+    if (Math.sqrt(vs / rs.length) / (mean || 1) < 0.09) return { kind: 'ellipse', box: { x0, y0, x1, y1 } };
 
     // ---- 角の数で見分ける（傾いた四角もここで拾う） ----
     const c = cornersOf(P, diag * 0.07);
-    if (c.length === 3) return [c[0], c[1], c[2], c[0]];
-    if (c.length === 4) return [c[0], c[1], c[2], c[3], c[0]];
+    if (c.length === 3 || c.length === 4) return { kind: 'poly', c: c.map(q => [q[0], q[1]]) };
     return null;
+  }
+
+  /* 形を決める点（つかんでいる点）から、実際に描く点をつくる */
+  function shapePoints(sh, hx, hy) {
+    if (sh.kind === 'line') return [sh.a, [hx, hy]];
+    if (sh.kind === 'rect' || sh.kind === 'ellipse') {
+      const x0 = Math.min(sh.a[0], hx), x1 = Math.max(sh.a[0], hx);
+      const y0 = Math.min(sh.a[1], hy), y1 = Math.max(sh.a[1], hy);
+      if (sh.kind === 'rect') return [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+      const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rx = (x1 - x0) / 2, ry = (y1 - y0) / 2;
+      const out = [];
+      for (let i = 0; i <= 64; i++) { const a = (i / 64) * Math.PI * 2; out.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]); }
+      return out;
+    }
+    const p = sh.pts.map(q => [q[0], q[1]]);
+    p[sh.i] = [hx, hy];
+    return p.concat([p[0]]);
   }
 
   /* 止まっているのを見張る。動くたびに数え直す */
@@ -580,15 +589,53 @@ PN.editor = (function () {
   }
   function snapGestureShape(g) {
     if (!gesture || gesture !== g || g.snapped) return;
-    const shape = recognizeShape(g.points);
-    if (!shape) return;
+    const r = recognizeShape(g.points);
+    if (!r) return;
     let pr = 0; g.points.forEach(p => { pr += (p[2] > 0 ? p[2] : 0.5); });
     pr = g.points.length ? pr / g.points.length : 0.5;
-    g.points = shape.map(p => [p[0], p[1], pr]);   // 太さはならす（形がきれいに見えるように）
+
+    /* ペンに近い点を「つかむ点」にして、その向かい側を固定する。
+       離さずに動かすと、この点だけが動いて大きさが変わる。 */
+    const last = g.points[g.points.length - 1];
+    const pen = [last[0], last[1]];
+    const near = (list) => {
+      let ni = 0, nd = Infinity;
+      list.forEach((c, i) => { const d = Math.hypot(pen[0] - c[0], pen[1] - c[1]); if (d < nd) { nd = d; ni = i; } });
+      return ni;
+    };
+    let sh, handle;
+    if (r.kind === 'line') {
+      const i = near([r.a, r.b]);
+      sh = { kind: 'line', a: i ? r.a : r.b };          // 遠い方の端を固定
+      handle = i ? r.b : r.a;
+    } else if (r.kind === 'rect' || r.kind === 'ellipse') {
+      const b = r.box;
+      const cs = [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]];
+      const i = near(cs);
+      sh = { kind: r.kind, a: cs[(i + 2) % 4] };        // 向かい合う角を固定
+      handle = cs[i];
+    } else {
+      const i = near(r.c);
+      sh = { kind: 'poly', pts: r.c.map(q => [q[0], q[1]]), i };   // 近い角だけ動かす
+      handle = r.c[i];
+    }
+    g.shape = sh; g.handleAt = handle; g.penAt = pen; g.pr = pr;
+    g.points = shapePoints(sh, handle[0], handle[1]).map(p => [p[0], p[1], pr]);
     g.snapped = true;
+    redrawLiveShape(g);
+  }
+  function redrawLiveShape(g) {
     const pv = g.pv;
     clearCtx(pv.live, pv.livectx); liveDrawnUpTo = 0;
     drawStroke(pv.livectx, g, pv);
+  }
+  /* きれいにしたあと、離さずに動かして大きさを変える */
+  function dragSnappedShape(g, pv, e) {
+    const [x, y] = toIntrinsic(e, pv);
+    const hx = Math.max(0, Math.min(pv.baseW, g.handleAt[0] + (x - g.penAt[0])));
+    const hy = Math.max(0, Math.min(pv.baseH, g.handleAt[1] + (y - g.penAt[1])));
+    g.points = shapePoints(g.shape, hx, hy).map(p => [p[0], p[1], g.pr]);
+    redrawLiveShape(g);
   }
 
   function drawStroke(ctx, s, pv) {
@@ -1658,7 +1705,8 @@ PN.editor = (function () {
       return;
     }
     if (gesture.type === 'pen') {
-      if (gesture.snapped) return;          // すでにきれいな形にした。あとは離すだけ
+      // きれいな形にしたあとは、離さずに動かすと大きさが変わる
+      if (gesture.snapped) { dragSnappedShape(gesture, pv, e); return; }
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       evs.forEach(ev => { const [x, y] = toIntrinsic(ev, pv); const p = (ev.pressure && ev.pressure > 0) ? ev.pressure : 0.5; gesture.points.push([x, y, p]); });
       drawLiveIncremental(pv);
