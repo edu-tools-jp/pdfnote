@@ -11,7 +11,6 @@
   --ok:#39b87a;
   --radius:12px;
   --bar-h:58px;
-  --foot-h:56px;
 }
 
 *{box-sizing:border-box;}
@@ -248,7 +247,6 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 
 /* 全画面（イマーシブ）モード：上下のバーを隠してPDFを最大化、タップで出し入れ */
 #screen-editor.immersive .editor-bar{position:absolute; top:0; left:0; right:0; z-index:30; transform:translateY(-115%); transition:transform .22s ease; box-shadow:0 6px 24px #000b;}
-#screen-editor.immersive .ed-foot{position:absolute; bottom:0; left:0; right:0; z-index:30; transform:translateY(115%); transition:transform .22s ease; box-shadow:0 -6px 24px #000b;}
 .imm-exit{
   position:absolute; right:16px; top:16px; z-index:40;
   padding:12px 18px; border-radius:999px; border:1px solid var(--line);
@@ -266,12 +264,6 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
   background:#000a; color:#fff; border:1px solid #fff; font-size:15px; line-height:24px; text-align:center; padding:0;
 }
 
-/* ---- 下部（ページ送り・サムネ） ---- */
-.ed-foot{
-  display:flex; align-items:center; gap:10px; height:var(--foot-h); min-height:var(--foot-h);
-  padding:8px 12px; background:var(--panel); border-top:1px solid var(--line); overflow:hidden;
-}
-.pagelabel{font-size:15px; min-width:74px; text-align:center; color:var(--ink);}
 /* 上バーの操作ヒント（2本指でページ移動）
    「ページ一覧」「＋ページ」と同じ行のまま、その行の左端に表示する。
    案内を出すあいだはボタン群を独立した行にして、案内を左端・ボタンを右端に振り分ける */
@@ -298,14 +290,6 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
   .ed-title{max-width:150px;}
   .tool-btn{min-width:50px; padding:5px 6px;}
 }
-.thumbs{display:flex; gap:8px; overflow-x:auto; flex:1; height:100%; align-items:center; padding:2px;}
-.thumb{
-  flex:0 0 auto; height:72px; aspect-ratio:3/4; border-radius:6px; border:2px solid var(--line);
-  background:#11141c center/cover no-repeat; position:relative; color:var(--muted);
-  display:flex; align-items:flex-end; justify-content:center; font-size:11px;
-}
-.thumb.active{border-color:var(--accent);}
-.thumb span{background:#000a; width:100%; text-align:center; border-radius:0 0 4px 4px;}
 
 .build-stamp{font-size:10px; color:var(--muted); opacity:.6; padding:0 6px; white-space:nowrap;}
 #btn-update.has-update{background:var(--ok); border-color:var(--ok); color:#fff; animation:pulse 1.6s ease-in-out infinite;}

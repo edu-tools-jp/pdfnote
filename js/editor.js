@@ -104,8 +104,6 @@ PN.editor = (function () {
     $('#ed-zoom-fit').addEventListener('click', () => setZoom(1));
     $('#ed-reveal-all').addEventListener('click', () => setAllMasks(true));
     $('#ed-hide-all').addEventListener('click', () => setAllMasks(false));
-    $('#ed-prev').addEventListener('click', () => goPage(currentIdx - 1));
-    $('#ed-next').addEventListener('click', () => goPage(currentIdx + 1));
     $('#ed-add-page').addEventListener('click', () => PN.app.pickFilesForCurrentNotebook());
     $('#ed-page-list').addEventListener('click', () => PN.pages.open());
     $('#ed-image').addEventListener('click', (e) => imageMenu(e.currentTarget));
@@ -181,7 +179,7 @@ PN.editor = (function () {
     if (pv.el.scrollIntoView) pv.el.scrollIntoView({ block: 'start' });
     return true;
   }
-  function showNoPages() { elNoPages.hidden = false; elScroller.style.display = 'none'; elPages.innerHTML = ''; pageViews = []; $('#ed-pagelabel').textContent = '- / -'; }
+  function showNoPages() { elNoPages.hidden = false; elScroller.style.display = 'none'; elPages.innerHTML = ''; pageViews = []; }
   async function flushSave() { if (dirty || viewDirty) await saveNow(); }
   async function close() {
     stopGlide();
@@ -1338,8 +1336,6 @@ PN.editor = (function () {
     // 次に開いたときのために覚えておく（保存は次の保存時にまとめて）
     const curId = nb.pages[currentIdx] && nb.pages[currentIdx].id;
     if (curId && nb.lastPageId !== curId) { nb.lastPageId = curId; viewDirty = true; }
-    $('#ed-pagelabel').textContent = (currentIdx + 1) + ' / ' + nb.pages.length;
-    $('#ed-prev').disabled = currentIdx <= 0; $('#ed-next').disabled = currentIdx >= nb.pages.length - 1;
   }
 
   /* ---------- 保存 ---------- */
