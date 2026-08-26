@@ -43,6 +43,8 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
   min-height:44px; min-width:44px; line-height:1; white-space:nowrap;
 }
 .bar-btn.icon{padding:9px;}
+/* メニューの項目は長い文もそのまま読めるように、折り返す */
+.bar-btn.menu-item{white-space:normal; line-height:1.45; text-align:left; padding:10px 12px;}
 .bar-btn:hover{filter:brightness(1.12);}
 .bar-btn.primary{background:var(--accent); border-color:var(--accent); color:#fff;}
 .bar-btn.ghost{background:transparent;}

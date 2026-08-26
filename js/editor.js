@@ -62,7 +62,8 @@ PN.editor = (function () {
 
   /* 書き込みはタッチペンだけ、というのが既定。
      アクティブペンは pointerType が 'pen'、指と静電式ペンは 'touch' で届く。
-     設定で「指でも書けるようにする」をオンにすると、指でも書ける（スクロールは2本指）。 */
+     設定で「指だけで操作できるようにする」をオンにすると、書き込みも投げ縄も
+     指でできるようになる（そのぶん、スクロールは2本指）。 */
   const FINGER_DRAW_KEY = 'pdfnote.fingerDraw';
   let fingerDraw = false;
   const penOnly = () => !fingerDraw;
@@ -1906,15 +1907,15 @@ PN.editor = (function () {
   function settingsMenu(anchor) {
     PN.ui.menu(anchor, [
       fingerDraw
-        ? { icon: 'check', label: '指でも書けるようにする', onClick: () => setFingerDraw(false) }
-        : { label: '指でも書けるようにする', onClick: () => setFingerDraw(true) }
+        ? { icon: 'check', label: '指だけで操作できるようにする（スクロールは2本指）', onClick: () => setFingerDraw(false) }
+        : { label: '指だけで操作できるようにする（スクロールは2本指）', onClick: () => setFingerDraw(true) }
     ]);
   }
   function setFingerDraw(on) {
     fingerDraw = !!on;
     try { localStorage.setItem(FINGER_DRAW_KEY, on ? '1' : '0'); } catch (e) {}
-    PN.ui.toast(on ? '指でも書けるようにしました。画面のスクロールは2本指で行います。'
-                   : 'タッチペンだけで書きます。1本指では画面がスクロールします。', 6000);
+    PN.ui.toast(on ? '指だけで操作できるようにしました。画面のスクロールは2本指で行います。'
+                   : 'タッチペンで操作します。1本指では画面がスクロールします。', 6000);
   }
 
   /* ---------- サムネイル（一覧用 thumb.png） ---------- */
