@@ -220,8 +220,38 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 .tool-btn.active small{color:#dbe7ff;}
 
 .colors{display:flex; gap:6px;}
-.color-swatch{width:30px; height:30px; border-radius:50%; border:3px solid #0000; cursor:pointer;}
+.color-swatch{width:30px; height:30px; border-radius:50%; border:3px solid #0000; cursor:pointer; position:relative;}
 .color-swatch.active{border-color:#fff; box-shadow:0 0 0 2px #0008;}
+/* 選んでいる色には「∨」を出す。もう一度押すと、その色を変えられる印 */
+.color-swatch.active::after{
+  content:''; position:absolute; left:50%; top:50%;
+  width:6px; height:6px; margin:-5px 0 0 -4px;
+  border-right:2px solid var(--mark, #fff); border-bottom:2px solid var(--mark, #fff);
+  transform:rotate(45deg); pointer-events:none;
+}
+
+/* ---------- 色えらび ---------- */
+.cp{width:330px; padding:12px;}
+.cp-head{font-size:13px; color:var(--muted); text-align:center; margin-bottom:8px;}
+.cp-tabs{display:flex; gap:4px; background:#0004; border-radius:10px; padding:3px; margin-bottom:10px;}
+.cp-tabs button{
+  flex:1; padding:7px 4px; font-size:13px; border:0; border-radius:8px;
+  background:#0000; color:var(--ink); cursor:pointer;
+}
+.cp-tabs button.on{background:var(--panel-2); box-shadow:0 1px 3px #0006;}
+.cp-grid{display:grid; gap:7px;}
+.cp-grid.preset{grid-template-columns:repeat(8, 1fr);}
+.cp-grid.custom{grid-template-columns:repeat(11, 1fr); gap:3px;}
+.cp-cell{aspect-ratio:1; border-radius:50%; border:1px solid #ffffff22; cursor:pointer;}
+.cp-grid.custom .cp-cell{border-radius:3px;}
+.cp-cell.on{box-shadow:0 0 0 2px var(--panel), 0 0 0 4px var(--accent);}
+.cp-foot{display:flex; align-items:center; gap:8px; margin-top:12px;}
+.cp-native{width:44px; height:36px; padding:2px; border:1px solid var(--line); border-radius:9px; background:var(--panel-2); cursor:pointer;}
+.cp-hex{
+  flex:1; min-width:0; font-size:14px; padding:8px; border-radius:9px;
+  border:1px solid var(--line); background:var(--panel-2); color:var(--ink);
+}
+.cp-foot .cp-reset{white-space:nowrap; font-size:13px;}
 .widths{display:flex; gap:6px; align-items:center;}
 .width-btn{
   width:46px; height:40px; border-radius:9px; border:1px solid var(--line);

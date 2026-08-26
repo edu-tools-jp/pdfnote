@@ -213,7 +213,113 @@ PN.ui = (function () {
     back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
     document.getElementById('modal-root').appendChild(back);
 
-    // 実際の寸法を測ってから、画面内に収まる位置に配置する
+    placeNear(box, anchorEl);
+  }
+
+  /* ---------- 色えらび（プリセット／カスタム） ----------
+     色のボタンをもう一度押したときに開く。選ぶとその場で色が変わる。 */
+  const CP_PRESET = [
+    '#1a1a1a', '#4d4d4d', '#909090', '#d0d0d0', '#ffffff', '#8e44ad', '#e0301e', '#e2574c',
+    '#f08ca0', '#f0a500', '#1e6fe0', '#1b4f8a', '#15a05a', '#7cb342', '#f2e14c', '#6ec6f0',
+    '#8d5a3b', '#0f7a5a', '#5fd6a8', '#7986cb', '#d81b60', '#e8590c', '#f5c518', '#ffe9a8'
+  ];
+  /* カスタム用の色みの表。左の1列は白黒、そのあとは色あい × 明るさ */
+  function customGrid() {
+    const cols = 11, rows = 9, out = [];
+    for (let r = 0; r < rows; r++) {
+      const l = 12 + r * 10;                       // 明るさ 12%〜92%
+      for (let c = 0; c < cols; c++) {
+        if (c === 0) out.push(hsl(0, 0, l));
+        else out.push(hsl(Math.round((c - 1) * (360 / (cols - 1))), 85, l));
+      }
+    }
+    return out;
+  }
+  function hsl(h, s, l) {
+    const a = s / 100 * Math.min(l / 100, 1 - l / 100);
+    const f = (n) => {
+      const k = (n + h / 30) % 12;
+      const v = l / 100 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+      return Math.round(255 * v).toString(16).padStart(2, '0');
+    };
+    return '#' + f(0) + f(8) + f(4);
+  }
+
+  function colorPicker(anchorEl, current, onPick, opts) {
+    opts = opts || {};
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.style.background = 'transparent';
+    back.style.alignItems = 'stretch';
+    back.style.justifyContent = 'stretch';
+    const box = document.createElement('div');
+    box.className = 'modal cp';
+    box.style.position = 'absolute';
+    box.style.visibility = 'hidden';
+    box.innerHTML =
+      '<div class="cp-head">色をえらぶ</div>' +
+      '<div class="cp-tabs">' +
+        '<button type="button" class="on" data-tab="preset">プリセット</button>' +
+        '<button type="button" data-tab="custom">カスタム</button>' +
+      '</div>' +
+      '<div class="cp-grid preset" data-pane="preset"></div>' +
+      '<div class="cp-grid custom" data-pane="custom" hidden></div>' +
+      '<div class="cp-foot">' +
+        '<input type="color" class="cp-native" title="もっと細かく選ぶ">' +
+        '<input type="text" class="cp-hex" maxlength="7" spellcheck="false" title="色の番号（例 #e0301e）">' +
+        (opts.onReset ? '<button type="button" class="bar-btn ghost cp-reset">もとにもどす</button>' : '') +
+      '</div>';
+
+    const close = () => back.remove();
+    const pick = (c) => { close(); onPick(c); };
+
+    const fill = (host, list) => {
+      host.innerHTML = '';
+      list.forEach(c => {
+        const cell = document.createElement('span');
+        cell.className = 'cp-cell' + (c.toLowerCase() === String(current).toLowerCase() ? ' on' : '');
+        cell.style.background = c;
+        cell.title = c;
+        cell.addEventListener('click', () => pick(c));
+        host.appendChild(cell);
+      });
+    };
+    fill(box.querySelector('[data-pane="preset"]'), CP_PRESET);
+    fill(box.querySelector('[data-pane="custom"]'), customGrid());
+
+    box.querySelectorAll('.cp-tabs button').forEach(t => {
+      t.addEventListener('click', () => {
+        box.querySelectorAll('.cp-tabs button').forEach(x => x.classList.toggle('on', x === t));
+        box.querySelectorAll('[data-pane]').forEach(pane => { pane.hidden = pane.dataset.pane !== t.dataset.tab; });
+      });
+    });
+
+    const native = box.querySelector('.cp-native');
+    const hex = box.querySelector('.cp-hex');
+    native.value = normHex(current) || '#000000';
+    hex.value = normHex(current) || '';
+    native.addEventListener('change', () => pick(native.value));
+    const applyHex = () => { const v = normHex(hex.value); if (v) pick(v); };
+    hex.addEventListener('change', applyHex);
+    hex.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); applyHex(); } });
+    const reset = box.querySelector('.cp-reset');
+    if (reset) reset.addEventListener('click', () => { close(); opts.onReset(); });
+
+    back.appendChild(box);
+    back.addEventListener('click', (e) => { if (e.target === back) close(); });
+    document.getElementById('modal-root').appendChild(back);
+    placeNear(box, anchorEl);
+  }
+  /* #rgb / #rrggbb / rrggbb を #rrggbb にそろえる。だめなら null */
+  function normHex(v) {
+    const m = String(v || '').trim().replace(/^#/, '');
+    if (/^[0-9a-fA-F]{3}$/.test(m)) return '#' + m.split('').map(c => c + c).join('').toLowerCase();
+    if (/^[0-9a-fA-F]{6}$/.test(m)) return '#' + m.toLowerCase();
+    return null;
+  }
+
+  /* 実際の寸法を測ってから、画面内に収まる位置に置く */
+  function placeNear(box, anchorEl) {
     const r = anchorEl.getBoundingClientRect();
     const margin = 10;
     const h = box.offsetHeight, w = box.offsetWidth;
@@ -234,5 +340,5 @@ PN.ui = (function () {
   }
   const escapeAttr = escapeHTML;
 
-  return { toast, busy, confirm, info, form, choose, menu, escapeHTML, icon };
+  return { toast, busy, confirm, info, form, choose, menu, colorPicker, escapeHTML, icon };
 })();
