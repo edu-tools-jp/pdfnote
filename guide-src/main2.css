@@ -56,13 +56,15 @@ b,strong{ font-weight:900; }
 .hero-t .u{ background:linear-gradient(transparent 64%, #ffe08a 64%, #ffe08a 94%, transparent 94%); padding:0 .4mm; }
 .hero-p{ font-size:8.8pt; line-height:1.85; color:var(--ink-2); margin-bottom:3.4mm; }
 .pills{ display:flex; flex-direction:column; gap:1.4mm; }
-.pills .p{ display:flex; gap:2mm; align-items:center; font-size:8.2pt; font-weight:900; }
+.pills .p{ display:flex; gap:2mm; align-items:baseline; font-size:8.2pt; font-weight:900;
+  white-space:nowrap; }
+.pills .p em{ white-space:normal; }
 .pills .p .ci{ width:5mm; height:5mm; border-radius:1.4mm; background:var(--blue); color:#fff;
   display:flex; align-items:center; justify-content:center; flex:none; }
 .pills .p .ci .ic{ width:3.2mm; height:3.2mm; stroke-width:2.2; }
 .pills .p em{ font-style:normal; font-weight:400; color:var(--muted); font-size:7.6pt; }
 
-.shot{ width:88mm; flex:none; }
+.shot{ width:100mm; flex:none; }
 .shot img{ display:block; width:100%; border-radius:2.4mm; border:.45mm solid #454e63; }
 .shot figcaption{ color:var(--muted); font-size:7pt; text-align:center; margin-top:1.6mm; }
 
