@@ -497,13 +497,20 @@ PN.editor = (function () {
 
   function clearCtx(canvas, ctx) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.restore(); }
 
-  function renderInk(pv) {
+  /* 保存した線は tool、描いている途中の線は type に道具の名前が入っている */
+  const kindOf = (s) => (s.tool || s.type);
+  const isMarkerStroke = (s) => kindOf(s) === 'marker';
+
+  /* extra を渡すと、描いている途中の線も正しい重なり順で一緒に描く */
+  function renderInk(pv, extra) {
     clearCtx(pv.ink, pv.inkctx);
     /* マーカーを先に、手書きをあとに描く。こうすると手書きがマーカーの上に来る。
        テキストボックスはこのキャンバスより上のレイヤーなので、もともと上になる。 */
     const st = annOf(pv.idx).strokes;
-    st.forEach(s => { if (s.tool === 'marker') drawStroke(pv.inkctx, s, pv); });
-    st.forEach(s => { if (s.tool !== 'marker') drawStroke(pv.inkctx, s, pv); });
+    st.forEach(s => { if (isMarkerStroke(s)) drawStroke(pv.inkctx, s, pv); });
+    if (extra && isMarkerStroke(extra)) drawStroke(pv.inkctx, extra, pv);
+    st.forEach(s => { if (!isMarkerStroke(s)) drawStroke(pv.inkctx, s, pv); });
+    if (extra && !isMarkerStroke(extra)) drawStroke(pv.inkctx, extra, pv);
   }
   /* ========== 押さえたままで、形をきれいにする ==========
      ペンで書いたあと、画面から離さずにその場で止めていると、
@@ -669,7 +676,8 @@ PN.editor = (function () {
   function redrawLiveShape(g) {
     const pv = g.pv;
     clearCtx(pv.live, pv.livectx); liveDrawnUpTo = 0;
-    drawStroke(pv.livectx, g, pv);
+    if (g.type === 'marker') renderInk(pv, g);      // マーカーは手書きの下・うすいまま
+    else drawStroke(pv.livectx, g, pv);
   }
   /* きれいにしたあと、離さずに動かして大きさを変える */
   function dragSnappedShape(g, pv, e) {
@@ -705,7 +713,7 @@ PN.editor = (function () {
   function drawStroke(ctx, s, pv) {
     const pts = s.points; if (!pts || !pts.length) return;
     const baseCssM = s.width * pv.cssW;
-    if (s.tool === 'marker') { drawMarker(ctx, s, pv.scale, baseCssM); return; }
+    if (isMarkerStroke(s)) { drawMarker(ctx, s, pv.scale, baseCssM); return; }
     ctx.strokeStyle = s.color; ctx.fillStyle = s.color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     const baseCss = baseCssM;
     if (pts.length === 1) { const w = strokeW(baseCss, pts[0][2]); ctx.beginPath(); ctx.arc(pts[0][0] * pv.scale, pts[0][1] * pv.scale, Math.max(0.4, w / 2), 0, Math.PI * 2); ctx.fill(); return; }
@@ -1776,7 +1784,9 @@ PN.editor = (function () {
       if (gesture.snapped) { dragSnappedShape(gesture, pv, e); return; }
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       evs.forEach(ev => { const [x, y] = toIntrinsic(ev, pv); const p = (ev.pressure && ev.pressure > 0) ? ev.pressure : 0.5; gesture.points.push([x, y, p]); });
-      if (gesture.type === 'marker') { clearCtx(pv.live, pv.livectx); drawStroke(pv.livectx, gesture, pv); }
+      /* マーカーは、描いている途中も手書きの下・うすいまま見せたい。
+         上に重なる live の層ではなく、インクの層へ正しい順番で描き直す。 */
+      if (gesture.type === 'marker') { clearCtx(pv.live, pv.livectx); renderInk(pv, gesture); }
       else drawLiveIncremental(pv);
       // ペンを動かしたら、止まっている時間を数え直す
       const last = gesture.points[gesture.points.length - 1];
@@ -1811,6 +1821,7 @@ PN.editor = (function () {
       return;
     }
     if (g.type === 'erase') { if (g.changed) { pushUndoSnap(pv.idx, g.before); markDirty(); } return; }
+    if (g.type === 'marker' && !g.points.length) { renderInk(pv); return; }   // 途中で描いたぶんを消す
     if (g.type === 'line' && g.points.length < 2) { clearCtx(pv.live, pv.livectx); return; }
     if (g.points.length) {
       pushUndo(pv.idx);
@@ -1874,7 +1885,14 @@ PN.editor = (function () {
 
   /* 進行中の描画を破棄（ピンチ開始時など） */
   function cancelGesture() {
-    if (gesture) { clearTimeout(gesture.holdTimer); try { gesture.pv.live.releasePointerCapture(gesture.pointerId); } catch (e) {} clearCtx(gesture.pv.live, gesture.pv.livectx); gesture = null; liveDrawnUpTo = 0; }
+    if (gesture) {
+      clearTimeout(gesture.holdTimer);
+      const g = gesture;
+      try { g.pv.live.releasePointerCapture(g.pointerId); } catch (e) {}
+      clearCtx(g.pv.live, g.pv.livectx);
+      gesture = null; liveDrawnUpTo = 0;
+      if (g.type === 'marker') renderInk(g.pv);     // 途中まで描いたマーカーを消す
+    }
     if (maskGesture) { try { maskGesture.pv.mask.releasePointerCapture(maskGesture.pointerId); } catch (e) {} if (maskGesture.el) maskGesture.el.remove(); maskGesture = null; }
   }
 
@@ -2208,7 +2226,7 @@ PN.editor = (function () {
   function composeStroke(ctx, s, scale, canvasW) {
     const pts = s.points; if (!pts || !pts.length) return;
     const baseCssM = s.width * canvasW;
-    if (s.tool === 'marker') { drawMarker(ctx, s, scale, baseCssM); return; }
+    if (isMarkerStroke(s)) { drawMarker(ctx, s, scale, baseCssM); return; }
     ctx.strokeStyle = s.color; ctx.fillStyle = s.color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     const baseCss = baseCssM;
     if (pts.length === 1) { const w = strokeW(baseCss, pts[0][2]); ctx.beginPath(); ctx.arc(pts[0][0] * scale, pts[0][1] * scale, Math.max(0.4, w / 2), 0, Math.PI * 2); ctx.fill(); return; }
@@ -2247,8 +2265,8 @@ PN.editor = (function () {
     }
     if (wantInk && ann.strokes) {
       // 画面と同じく、マーカーを先に描いて手書きの下にする
-      ann.strokes.forEach(s => { if (s.tool === 'marker') composeStroke(ctx, s, scale, canvas.width); });
-      ann.strokes.forEach(s => { if (s.tool !== 'marker') composeStroke(ctx, s, scale, canvas.width); });
+      ann.strokes.forEach(s => { if (isMarkerStroke(s)) composeStroke(ctx, s, scale, canvas.width); });
+      ann.strokes.forEach(s => { if (!isMarkerStroke(s)) composeStroke(ctx, s, scale, canvas.width); });
     }
     if (ann.texts) ann.texts.forEach(t => composeText(ctx, t, scale));
     if (wantMasks && ann.masks) ann.masks.forEach(m => { ctx.fillStyle = m.color || '#c0392b'; ctx.fillRect(m.x * scale, m.y * scale, m.w * scale, m.h * scale); });
