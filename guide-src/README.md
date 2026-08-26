@@ -11,6 +11,9 @@ chromium --headless --disable-gpu --no-sandbox --no-pdf-header-footer \
 
 - `guide.html` … 本文。アイコンは先頭の `<symbol>` にまとめてあります
   （アプリの `index.html` と同じ形なので、必要な分をコピーして使えます）。
+- `app-screenshot.png` … 1ページ目のイメージ図。実際のアプリの画面です。
+  差し替えるときは、この名前で置き換えれば作り直すだけで反映されます
+  （横 1500px 程度。ブラウザの画面をそのまま撮ったものです）。
 - `main2.css` … 紙面の体裁。A4・2ページに収まるよう余白を詰めてあります。
 - `fonts.css` / `NotoSansJP-*.ttf` … 埋め込む書体（Noto Sans JP を必要な字だけに
   絞ったもの）。PDF に埋め込まれるので、他のPCで開いても同じ見た目になります。
