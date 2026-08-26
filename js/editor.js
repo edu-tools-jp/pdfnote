@@ -1038,7 +1038,8 @@ PN.editor = (function () {
     if (lassoPick.texts) ann.texts.forEach((o, i) => { if (textHitsPoly(pv, i, o, poly, bb)) items.texts.push(i); });
     if (lassoPick.masks) ann.masks.forEach((o, i) => { if (boxHitsPoly(o, poly, bb)) items.masks.push(i); });
     if (!selCount(items)) { clearLasso(); PN.ui.toast('囲みの中に選べるものがありませんでした'); return; }
-    lassoSel = { pv, items, box: selectionBox(pv, items) };
+    // 囲んだ曲線をそのまま覚えておき、選択の形として表示する
+    lassoSel = { pv, items, box: selectionBox(pv, items), poly: poly.map(p => [p[0], p[1]]) };
     renderLasso();
   }
   function clearLasso() { lassoSel = null; renderLasso(); }
@@ -1063,25 +1064,51 @@ PN.editor = (function () {
     ctx.restore();
   }
 
-  /* 選択枠と操作メニューを表示 */
+  /* 四角い枠のかわりに使う、長方形の形（貼り付け・複製のときはこちら） */
+  const rectPoly = (b) => [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
+  /* 形を囲む長方形。表示と、拡大縮小のつまみの位置に使う */
+  function polyRect(poly) {
+    const b = polyBBox(poly);
+    return { x: b.x0, y: b.y0, w: Math.max(1, b.x1 - b.x0), h: Math.max(1, b.y1 - b.y0) };
+  }
+  /* 表示に使う形（囲んだ曲線。貼り付け・複製では長方形） */
+  const shapeOf = (sel) => (sel.poly && sel.poly.length > 2) ? sel.poly : rectPoly(sel.box);
+
+  /* 選択を表示する。囲んだときの曲線を、そのまま選択の形として残す */
   function renderLasso() {
     document.querySelectorAll('.lasso-sel').forEach(e => e.remove());
     updateLassoButtons();
     if (!lassoSel) return;
-    const { pv, box } = lassoSel;
+    const pv = lassoSel.pv;
+    const poly = shapeOf(lassoSel);
+    const sb = polyRect(poly);          // 入れ物は「描いた形」に合わせる（つまみもその右下に付く）
     const el = document.createElement('div');
     el.className = 'lasso-sel';
-    el.style.left = (box.x / pv.baseW * 100) + '%';
-    el.style.top = (box.y / pv.baseH * 100) + '%';
-    el.style.width = (box.w / pv.baseW * 100) + '%';
-    el.style.height = (box.h / pv.baseH * 100) + '%';
+    el.style.left = (sb.x / pv.baseW * 100) + '%';
+    el.style.top = (sb.y / pv.baseH * 100) + '%';
+    el.style.width = (sb.w / pv.baseW * 100) + '%';
+    el.style.height = (sb.h / pv.baseH * 100) + '%';
+
+    /* 曲線は SVG で描く。囲みの外にはみ出しても切れないよう overflow は visible。
+       線の太さと点線の間隔は、拡大しても一定に見えるよう non-scaling-stroke にする。 */
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'ls-shape');
+    svg.setAttribute('viewBox', sb.x + ' ' + sb.y + ' ' + sb.w + ' ' + sb.h);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    const pg = document.createElementNS(NS, 'polygon');
+    pg.setAttribute('points', poly.map(p => p[0] + ',' + p[1]).join(' '));
+    pg.setAttribute('vector-effect', 'non-scaling-stroke');
+    svg.appendChild(pg);
+    el.appendChild(svg);
+
     const rs = document.createElement('button'); rs.className = 'ls-resize'; rs.title = 'ドラッグで拡大・縮小';
     el.appendChild(rs);
-    el.addEventListener('pointerdown', (e) => { if (e.target !== rs) startLassoDrag(e, 'move'); });
+    el.addEventListener('pointerdown', (e) => { if (!rs.contains(e.target)) startLassoDrag(e, 'move'); });
     rs.addEventListener('pointerdown', (e) => startLassoDrag(e, 'resize'));
     pv.text.appendChild(el);       // 文字レイヤーの上に重ねて表示
-    // ※ レイヤー全体は塞がない。枠の外をタップしたら選択を解除して次の選択に移れるようにする
-    //   （.lasso-sel だけ CSS で pointer-events:auto にしている）
+    // ※ レイヤー全体は塞がない。曲線の中と、右下のつまみだけが操作を受け取る
+    //   （曲線の外のタップは下の投げ縄に通り、選択を解除して次の選択に移れる）
   }
 
   /* 選択したものをまとめて動かす／拡大縮小する */
@@ -1090,7 +1117,9 @@ PN.editor = (function () {
     if (!lassoSel) return;
     e.preventDefault(); e.stopPropagation();
     pushUndo(lassoSel.pv.idx);
-    lassoDrag = { mode, startX: e.clientX, startY: e.clientY, box0: Object.assign({}, lassoSel.box), snap: snapshotSelection() };
+    lassoDrag = { mode, startX: e.clientX, startY: e.clientY, box0: Object.assign({}, lassoSel.box),
+      sb0: polyRect(shapeOf(lassoSel)),                       // 拡大縮小はこの形を基準にする
+      poly0: (lassoSel.poly || []).map(p => [p[0], p[1]]), snap: snapshotSelection() };
     document.addEventListener('pointermove', onLassoDragMove);
     document.addEventListener('pointerup', endLassoDrag);
   }
@@ -1114,9 +1143,12 @@ PN.editor = (function () {
         ann[k][idx].x = s[k][n].x + dx; ann[k][idx].y = s[k][n].y + dy;
       }));
       lassoSel.box = { x: b0.x + dx, y: b0.y + dy, w: b0.w, h: b0.h };
+      lassoSel.poly = lassoDrag.poly0.map(p => [p[0] + dx, p[1] + dy]);
     } else {
-      const f = Math.max(0.15, Math.min(6, (b0.w + dx) / b0.w));   // 左上を固定して拡大縮小
-      const ox = b0.x, oy = b0.y;
+      // つまみが指について来るよう、描いた形の左上を固定して拡大縮小する
+      const s0 = lassoDrag.sb0;
+      const f = Math.max(0.15, Math.min(6, (s0.w + dx) / s0.w));
+      const ox = s0.x, oy = s0.y;
       lassoSel.items.strokes.forEach((idx, n) => {
         ann.strokes[idx].points = s.strokes[n].map(p => [ox + (p[0] - ox) * f, oy + (p[1] - oy) * f, p[2]]);
       });
@@ -1126,7 +1158,8 @@ PN.editor = (function () {
         o.w = q.w * f; o.h = q.h * f;
         if (k === 'texts' && q.size) o.size = Math.max(6, q.size * f);
       }));
-      lassoSel.box = { x: ox, y: oy, w: b0.w * f, h: b0.h * f };
+      lassoSel.box = { x: ox + (b0.x - ox) * f, y: oy + (b0.y - oy) * f, w: b0.w * f, h: b0.h * f };
+      lassoSel.poly = lassoDrag.poly0.map(p => [ox + (p[0] - ox) * f, oy + (p[1] - oy) * f]);
     }
     redrawSelPage(); renderLasso();
   }
