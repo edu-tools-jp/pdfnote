@@ -2410,7 +2410,10 @@ PN.editor = (function () {
     if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); goPage(currentIdx + 1); }
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); goPage(currentIdx - 1); }
     else if (e.key === 'Escape' && immersive) { exitImmersive(); }
-    else { const map = { '1': 'lasso', '2': 'pen', '3': 'marker', '4': 'line', '5': 'eraser', '6': 'text', '7': 'mask', '8': 'reveal' }; if (map[e.key]) setTool(map[e.key]); }
+    // 数字キーは、上のバーの道具の並び順どおり。
+    // 「画像」だけは道具ではなくメニューなので、ボタンを押したことにする
+    else if (e.key === '7') { const b = $('#ed-image'); if (b) b.click(); }
+    else { const map = { '1': 'lasso', '2': 'pen', '3': 'marker', '4': 'line', '5': 'eraser', '6': 'text', '8': 'mask', '9': 'reveal' }; if (map[e.key]) setTool(map[e.key]); }
   }
 
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
