@@ -19,6 +19,17 @@ PN.editor = (function () {
   const DEFAULT_WIDTHS = [0.4, 0.8, 1.2, 2.0].map(widthOf);
   const WIDTHS = DEFAULT_WIDTHS.slice();
   const WIDTHS_KEY = 'pdfnote.penWidths';
+  /* マーカー（蛍光ペン）。うすく重ねるので、色は淡いものを既定にする */
+  const DEFAULT_MK_COLORS = ['#ffd54a', '#ff9ec4', '#a8e05a', '#7fd6f0', '#c9a7f0', '#ffab5e'];
+  const MK_COLORS = DEFAULT_MK_COLORS.slice();
+  const MK_COLORS_KEY = 'pdfnote.markerColors';
+  const MK_ALPHA = 0.35;                 // 下の文字が読めるうすさ
+  /* マーカーはペンよりずっと太い。同じく mm で決められる */
+  const MK_MM_MIN = 1, MK_MM_MAX = 20;
+  const DEFAULT_MK_WIDTHS = [4, 6, 9, 13].map(widthOf);
+  const MK_WIDTHS = DEFAULT_MK_WIDTHS.slice();
+  const MK_WIDTHS_KEY = 'pdfnote.markerWidths';
+
   const DEFAULT_MASK_COLORS = ['#c0392b', '#2d6cdf', '#4a5163'];
   const MASK_COLORS = DEFAULT_MASK_COLORS.slice();
   const MASK_COLORS_KEY = 'pdfnote.maskColors';
@@ -44,6 +55,9 @@ PN.editor = (function () {
   /* 状態 */
   let nb = null, currentIdx = 0;
   let tool = 'pen', color = COLORS[0], widthIdx = 1, maskColor = MASK_COLORS[0];
+  let mkColor = MK_COLORS[0], mkWidthIdx = 1;
+  const isFreehand = (t) => (t === 'pen' || t === 'marker');   // なぞって描く道具
+  const isPenLike = (t) => (t === 'pen' || t === 'marker' || t === 'line');
   let zoom = 1, baseContentW = 1;
   const dprv = () => window.devicePixelRatio || 1;
 
@@ -146,57 +160,80 @@ PN.editor = (function () {
 
   function buildSwatches() {
     loadPalette(COLORS_KEY, COLORS, DEFAULT_COLORS);
+    loadPalette(MK_COLORS_KEY, MK_COLORS, DEFAULT_MK_COLORS);
     loadPalette(MASK_COLORS_KEY, MASK_COLORS, DEFAULT_MASK_COLORS);
-    color = COLORS[0]; maskColor = MASK_COLORS[0];
-    buildColorRow($('#color-swatches'), COLORS, COLORS_KEY, DEFAULT_COLORS,
-      () => color, (c) => { color = c; }, () => buildLassoColors());
+    color = COLORS[0]; mkColor = MK_COLORS[0]; maskColor = MASK_COLORS[0];
     buildColorRow($('#mask-swatches'), MASK_COLORS, MASK_COLORS_KEY, DEFAULT_MASK_COLORS,
       () => maskColor, (c) => { maskColor = c; });
     loadWidths();
+    refreshPenPanels();
+  }
+
+  /* 色と太さの並びを、いまの道具（ペン／マーカー）に合わせて作り直す */
+  function refreshPenPanels() {
+    const mk = (tool === 'marker');
+    buildColorRow($('#color-swatches'),
+      mk ? MK_COLORS : COLORS,
+      mk ? MK_COLORS_KEY : COLORS_KEY,
+      mk ? DEFAULT_MK_COLORS : DEFAULT_COLORS,
+      () => (mk ? mkColor : color),
+      (c) => { if (mk) mkColor = c; else color = c; },
+      () => { if (!mk) buildLassoColors(); });
     buildWidthRow();
   }
 
   /* 覚えておいた太さを読み出す（数や範囲が合わないときは既定にもどす） */
-  function loadWidths() {
+  function loadWidthSet(key, list, def, lo, hi) {
     try {
-      const v = JSON.parse(localStorage.getItem(WIDTHS_KEY) || 'null');
-      if (Array.isArray(v) && v.length === DEFAULT_WIDTHS.length &&
-          v.every(mm => typeof mm === 'number' && mm >= MM_MIN && mm <= MM_MAX)) {
-        v.forEach((mm, i) => { WIDTHS[i] = widthOf(mm); });
+      const v = JSON.parse(localStorage.getItem(key) || 'null');
+      if (Array.isArray(v) && v.length === def.length &&
+          v.every(mm => typeof mm === 'number' && mm >= lo && mm <= hi)) {
+        v.forEach((mm, i) => { list[i] = widthOf(mm); });
       }
     } catch (e) { /* 読めなければ既定のまま */ }
   }
-  const saveWidths = () => {
-    try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(WIDTHS.map(w => Math.round(mmOf(w) * 100) / 100))); } catch (e) {}
+  function loadWidths() {
+    loadWidthSet(WIDTHS_KEY, WIDTHS, DEFAULT_WIDTHS, MM_MIN, MM_MAX);
+    loadWidthSet(MK_WIDTHS_KEY, MK_WIDTHS, DEFAULT_MK_WIDTHS, MK_MM_MIN, MK_MM_MAX);
+  }
+  const saveWidthSet = (key, list) => {
+    try { localStorage.setItem(key, JSON.stringify(list.map(w => Math.round(mmOf(w) * 100) / 100))); } catch (e) {}
   };
 
   /* 太さのボタンを並べる。
      選んでいない太さを押す → その太さにする。
      選んでいる太さをもう一度押す → つまみで自由に変えられる（0.1〜2.0mm）。 */
   function buildWidthRow() {
+    const mk = (tool === 'marker');
+    const LIST = mk ? MK_WIDTHS : WIDTHS;
+    const DEF = mk ? DEFAULT_MK_WIDTHS : DEFAULT_WIDTHS;
+    const KEY = mk ? MK_WIDTHS_KEY : WIDTHS_KEY;
+    const LO = mk ? MK_MM_MIN : MM_MIN, HI = mk ? MK_MM_MAX : MM_MAX;
+    const cur = () => (mk ? mkWidthIdx : widthIdx);
+    const setCur = (i) => { if (mk) mkWidthIdx = i; else widthIdx = i; };
     const ws = $('#width-btns'); ws.innerHTML = '';
-    WIDTHS.forEach((w, i) => {
+    LIST.forEach((w, i) => {
       const b = document.createElement('button');
-      const on = (i === widthIdx);
+      const on = (i === cur());
       b.className = 'width-btn' + (on ? ' active' : '');
       const d = document.createElement('span'); d.className = 'dot';
-      sizeDot(d, mmOf(w));
+      sizeDot(d, mmOf(w), HI);
       b.appendChild(d);
       b.title = on ? 'もう一度押すと太さを変えられます（今 ' + fmtMm(mmOf(w)) + ' mm）'
                    : fmtMm(mmOf(w)) + ' mm';
       b.addEventListener('click', () => {
-        if (widthIdx !== i) { widthIdx = i; buildWidthRow(); return; }   // まずは太さをえらぶだけ
-        PN.ui.widthPicker(b, mmOf(WIDTHS[i]), {
-          min: MM_MIN, max: MM_MAX,
+        if (cur() !== i) { setCur(i); buildWidthRow(); return; }   // まずは太さをえらぶだけ
+        PN.ui.widthPicker(b, mmOf(LIST[i]), {
+          min: LO, max: HI,
           // つまみを動かしている間は、押したボタンの丸だけを直す（並べ直すとちらつくため）
           onChange: (mm) => {
-            WIDTHS[i] = widthOf(mm); saveWidths();
-            sizeDot(d, mm);
+            LIST[i] = widthOf(mm); saveWidthSet(KEY, LIST);
+            sizeDot(d, mm, HI);
             b.title = 'もう一度押すと太さを変えられます（今 ' + fmtMm(mm) + ' mm）';
           },
           onReset: () => {
-            DEFAULT_WIDTHS.forEach((v, j) => { WIDTHS[j] = v; });
-            saveWidths(); buildWidthRow();
+            DEF.forEach((v, j) => { LIST[j] = v; });
+            saveWidthSet(KEY, LIST); buildWidthRow();
             PN.ui.toast('太さをもとにもどしました');
           }
         });
@@ -204,9 +241,9 @@ PN.editor = (function () {
       ws.appendChild(b);
     });
   }
-  /* 太さが見て分かる大きさの丸にする */
-  function sizeDot(dot, mm) {
-    const px = Math.max(4, Math.min(20, 2.5 + mm * 7.5));
+  /* 太さが見て分かる大きさの丸にする（その道具の上限を 20px にあてる） */
+  function sizeDot(dot, mm, hi) {
+    const px = Math.max(4, Math.min(20, 3 + (mm / (hi || MM_MAX)) * 17));
     dot.style.width = px + 'px'; dot.style.height = px + 'px';
   }
   const fmtMm = (v) => {
@@ -236,7 +273,7 @@ PN.editor = (function () {
   function setTool(t) {
     tool = t;
     document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
-    const isPen = (t === 'pen' || t === 'line');
+    const isPen = isPenLike(t);
     $('#grp-color').hidden = !isPen;
     $('#grp-width').hidden = !isPen;
     $('#grp-mask').hidden = (t !== 'mask');
@@ -249,13 +286,14 @@ PN.editor = (function () {
     }
     if (t !== 'image') selImg = null;
     if (t !== 'lasso') clearLasso();
+    if (isPenLike(t)) refreshPenPanels();   // ペンとマーカーで色・太さの並びを入れ替える
     pageViews.forEach(pv => { renderTexts(pv); renderImages(pv); });
     updateRouting();
   }
 
   /* レイヤーのポインタ受付（道具に応じて）。全画面でも通常どおり描ける */
   function updatePVRouting(pv) {
-    const drawTool = (tool === 'pen' || tool === 'line' || tool === 'eraser' || tool === 'lasso');
+    const drawTool = (isPenLike(tool) || tool === 'eraser' || tool === 'lasso');
     pv.live.style.pointerEvents = drawTool ? 'auto' : 'none';
     pv.mask.style.pointerEvents = (tool === 'mask' || tool === 'reveal') ? 'auto' : 'none';
     pv.text.style.pointerEvents = (tool === 'text') ? 'auto' : 'none';
@@ -461,7 +499,11 @@ PN.editor = (function () {
 
   function renderInk(pv) {
     clearCtx(pv.ink, pv.inkctx);
-    annOf(pv.idx).strokes.forEach(s => drawStroke(pv.inkctx, s, pv));
+    /* マーカーを先に、手書きをあとに描く。こうすると手書きがマーカーの上に来る。
+       テキストボックスはこのキャンバスより上のレイヤーなので、もともと上になる。 */
+    const st = annOf(pv.idx).strokes;
+    st.forEach(s => { if (s.tool === 'marker') drawStroke(pv.inkctx, s, pv); });
+    st.forEach(s => { if (s.tool !== 'marker') drawStroke(pv.inkctx, s, pv); });
   }
   /* ========== 押さえたままで、形をきれいにする ==========
      ペンで書いたあと、画面から離さずにその場で止めていると、
@@ -583,7 +625,7 @@ PN.editor = (function () {
 
   /* 止まっているのを見張る。動くたびに数え直す */
   function armShapeHold(g) {
-    if (!snapShapes || !g || g.type !== 'pen') return;
+    if (!snapShapes || !g || !isFreehand(g.type)) return;
     clearTimeout(g.holdTimer);
     g.holdTimer = setTimeout(() => snapGestureShape(g), SHAPE_HOLD_MS);
   }
@@ -638,10 +680,34 @@ PN.editor = (function () {
     redrawLiveShape(g);
   }
 
+  /* マーカーを描く。
+     ・うすく重ねて、下の文字が読めるようにする
+     ・筆圧では太さを変えない（蛍光ペンは一定の太さ）
+     ・線をひと筆で描く。分けて描くと、重なった所だけ濃くなってしまう */
+  function drawMarker(ctx, s, scale, baseCss) {
+    const pts = s.points;
+    ctx.save();
+    ctx.globalAlpha = MK_ALPHA;
+    ctx.strokeStyle = s.color; ctx.fillStyle = s.color;
+    ctx.lineWidth = Math.max(1, baseCss);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    if (pts.length === 1) {
+      ctx.beginPath(); ctx.arc(pts[0][0] * scale, pts[0][1] * scale, Math.max(0.5, baseCss / 2), 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0] * scale, pts[0][1] * scale);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0] * scale, pts[i][1] * scale);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function drawStroke(ctx, s, pv) {
     const pts = s.points; if (!pts || !pts.length) return;
+    const baseCssM = s.width * pv.cssW;
+    if (s.tool === 'marker') { drawMarker(ctx, s, pv.scale, baseCssM); return; }
     ctx.strokeStyle = s.color; ctx.fillStyle = s.color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    const baseCss = s.width * pv.cssW;
+    const baseCss = baseCssM;
     if (pts.length === 1) { const w = strokeW(baseCss, pts[0][2]); ctx.beginPath(); ctx.arc(pts[0][0] * pv.scale, pts[0][1] * pv.scale, Math.max(0.4, w / 2), 0, Math.PI * 2); ctx.fill(); return; }
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];
@@ -1691,7 +1757,8 @@ PN.editor = (function () {
     }
     if (tool === 'eraser') { gesture = Object.assign(common, { type: 'erase', before: structuredClone(annOf(pv.idx)), changed: false }); eraseAt(pv, x, y); return; }
     const p = (e.pressure && e.pressure > 0) ? e.pressure : (e.pointerType === 'pen' ? 0 : 0.5);
-    gesture = Object.assign(common, { type: tool, color, width: WIDTHS[widthIdx], points: [[x, y, p]] });
+    const mk = (tool === 'marker');
+    gesture = Object.assign(common, { type: tool, color: mk ? mkColor : color, width: mk ? MK_WIDTHS[mkWidthIdx] : WIDTHS[widthIdx], points: [[x, y, p]] });
     gesture.holdAt = [x, y];
     armShapeHold(gesture);
   }
@@ -1704,12 +1771,13 @@ PN.editor = (function () {
       drawLassoPath(pv, gesture.poly);
       return;
     }
-    if (gesture.type === 'pen') {
+    if (isFreehand(gesture.type)) {
       // きれいな形にしたあとは、離さずに動かすと大きさが変わる
       if (gesture.snapped) { dragSnappedShape(gesture, pv, e); return; }
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       evs.forEach(ev => { const [x, y] = toIntrinsic(ev, pv); const p = (ev.pressure && ev.pressure > 0) ? ev.pressure : 0.5; gesture.points.push([x, y, p]); });
-      drawLiveIncremental(pv);
+      if (gesture.type === 'marker') { clearCtx(pv.live, pv.livectx); drawStroke(pv.livectx, gesture, pv); }
+      else drawLiveIncremental(pv);
       // ペンを動かしたら、止まっている時間を数え直す
       const last = gesture.points[gesture.points.length - 1];
       if (!gesture.holdAt || Math.hypot(last[0] - gesture.holdAt[0], last[1] - gesture.holdAt[1]) > SHAPE_MOVE_TOL) {
@@ -2139,8 +2207,10 @@ PN.editor = (function () {
   /* ---------- ページの合成描画（背景＋書き込み＋目かくし）: 一覧サムネ・PDF書き出し用 ---------- */
   function composeStroke(ctx, s, scale, canvasW) {
     const pts = s.points; if (!pts || !pts.length) return;
+    const baseCssM = s.width * canvasW;
+    if (s.tool === 'marker') { drawMarker(ctx, s, scale, baseCssM); return; }
     ctx.strokeStyle = s.color; ctx.fillStyle = s.color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    const baseCss = s.width * canvasW;
+    const baseCss = baseCssM;
     if (pts.length === 1) { const w = strokeW(baseCss, pts[0][2]); ctx.beginPath(); ctx.arc(pts[0][0] * scale, pts[0][1] * scale, Math.max(0.4, w / 2), 0, Math.PI * 2); ctx.fill(); return; }
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];
@@ -2175,7 +2245,11 @@ PN.editor = (function () {
         } catch (e) { /* 画像が見つからないときは飛ばす */ }
       }
     }
-    if (wantInk && ann.strokes) ann.strokes.forEach(s => composeStroke(ctx, s, scale, canvas.width));
+    if (wantInk && ann.strokes) {
+      // 画面と同じく、マーカーを先に描いて手書きの下にする
+      ann.strokes.forEach(s => { if (s.tool === 'marker') composeStroke(ctx, s, scale, canvas.width); });
+      ann.strokes.forEach(s => { if (s.tool !== 'marker') composeStroke(ctx, s, scale, canvas.width); });
+    }
     if (ann.texts) ann.texts.forEach(t => composeText(ctx, t, scale));
     if (wantMasks && ann.masks) ann.masks.forEach(m => { ctx.fillStyle = m.color || '#c0392b'; ctx.fillRect(m.x * scale, m.y * scale, m.w * scale, m.h * scale); });
     return canvas;
@@ -2336,7 +2410,7 @@ PN.editor = (function () {
     if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); goPage(currentIdx + 1); }
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); goPage(currentIdx - 1); }
     else if (e.key === 'Escape' && immersive) { exitImmersive(); }
-    else { const map = { '1': 'lasso', '2': 'pen', '3': 'line', '4': 'eraser', '5': 'text', '6': 'mask', '7': 'reveal' }; if (map[e.key]) setTool(map[e.key]); }
+    else { const map = { '1': 'lasso', '2': 'pen', '3': 'marker', '4': 'line', '5': 'eraser', '6': 'text', '7': 'mask', '8': 'reveal' }; if (map[e.key]) setTool(map[e.key]); }
   }
 
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
