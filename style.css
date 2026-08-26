@@ -440,7 +440,8 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 /* ---------- トースト / ビジー ---------- */
 .toast{
   position:fixed; left:50%; bottom:30px; transform:translateX(-50%);
-  background:#000d; color:#fff; padding:12px 22px; border-radius:999px; font-size:15px; z-index:80;
+  background:#000d; color:#fff; padding:12px 22px; border-radius:22px; font-size:15px; z-index:80;
+  max-width:min(720px,92vw); line-height:1.7; text-align:center;
 }
 .busy{
   position:fixed; inset:0; background:#000a; display:flex; flex-direction:column; gap:16px;
