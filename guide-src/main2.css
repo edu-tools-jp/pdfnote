@@ -41,7 +41,7 @@ b,strong{ font-weight:900; }
 .head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:5.5mm;
        border-bottom:.6mm solid var(--ink); padding-bottom:3.4mm; }
 .brand{ display:flex; align-items:center; gap:3mm; }
-.brand .logo{ width:12mm; height:12mm; border-radius:2.6mm; }
+.brand .logo{ width:12mm; height:12mm; display:block; }
 .brand .bn{ font-size:16pt; font-weight:900; letter-spacing:.01em; line-height:1.2; }
 .brand .bs{ font-size:8pt; color:var(--muted); letter-spacing:.04em; }
 .upd{ display:flex; align-items:center; gap:1.8mm; background:var(--red-l);
@@ -159,7 +159,7 @@ b,strong{ font-weight:900; }
 
 .closing{ border-radius:2.6mm; background:var(--panel); color:#e8ecf4;
   padding:4mm 5mm; display:flex; align-items:center; gap:4.5mm; }
-.closing .lg{ width:13mm; height:13mm; border-radius:2.8mm; flex:none; }
+.closing .lg{ width:13mm; height:13mm; display:block; flex:none; }
 .closing .t{ font-size:10.5pt; font-weight:900; line-height:1.5; }
 .closing .d{ font-size:7.6pt; color:#9aa3b6; line-height:1.65; margin-top:.8mm; }
 
