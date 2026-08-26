@@ -902,11 +902,13 @@ PN.editor = (function () {
       styleTextBox(el, body, t, pv, idx);
 
       if (editing) {
-        const mv = document.createElement('button'); mv.className = 'tb-move'; mv.innerHTML = PN.ui.icon('move'); mv.title = 'ドラッグで移動';
+        // 左右の線＝幅を変えるつまみ。移動は「投げ縄」で行う
+        const wl = document.createElement('button'); wl.className = 'tb-wl'; wl.title = '左右に動かして幅を変える';
+        const wr = document.createElement('button'); wr.className = 'tb-wr'; wr.title = '左右に動かして幅を変える';
         const del = document.createElement('button'); del.className = 'tb-del'; del.textContent = '×'; del.title = '削除';
-        const rs = document.createElement('button'); rs.className = 'tb-resize'; rs.title = 'ドラッグで大きさ変更';
-        el.append(mv, del, rs);
-        wireTextBox(pv, el, idx, body, mv, del, rs);
+        const rs = document.createElement('button'); rs.className = 'tb-resize'; rs.title = '上下に動かして高さを変える';
+        el.append(wl, wr, del, rs);
+        wireTextBox(pv, el, idx, body, wl, wr, del, rs);
       }
       pv.text.appendChild(el);
     });
@@ -917,7 +919,7 @@ PN.editor = (function () {
   }
 
   /* ---- 1つのテキストボックスの操作 ---- */
-  function wireTextBox(pv, el, idx, body, mv, del, rs) {
+  function wireTextBox(pv, el, idx, body, wl, wr, del, rs) {
     body.addEventListener('pointerdown', (e) => { e.stopPropagation(); selectText(pv, idx); });
     body.addEventListener('input', () => { textsOf(pv.idx)[idx].text = body.innerText; markDirty(); });
     // 焦点が当たったら、キーボードが出ても画面が動かないよう位置を押さえる
@@ -925,7 +927,7 @@ PN.editor = (function () {
     // ※ 空の箱は blur では消さない（キーボードの出入りでも外れてしまうため）。
     //    dropEmptyTexts で、作り直すとき・道具を変えるとき・閉じるときに片づける。
     // つまみを押しても、入力中の焦点が外れないようにする
-    [mv, del, rs].forEach(btn => btn.addEventListener('mousedown', (e) => e.preventDefault()));
+    [wl, wr, del, rs].forEach(btn => btn.addEventListener('mousedown', (e) => e.preventDefault()));
     del.addEventListener('pointerdown', (e) => e.stopPropagation());
     del.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -933,7 +935,8 @@ PN.editor = (function () {
       textsOf(pv.idx).splice(idx, 1);
       selText = null; renderTexts(pv); markDirty();
     });
-    mv.addEventListener('pointerdown', (e) => startTextDrag(e, pv, idx, 'move', el));
+    wl.addEventListener('pointerdown', (e) => startTextDrag(e, pv, idx, 'w-left', el));
+    wr.addEventListener('pointerdown', (e) => startTextDrag(e, pv, idx, 'w-right', el));
     rs.addEventListener('pointerdown', (e) => startTextDrag(e, pv, idx, 'resize', el));
   }
 
@@ -968,15 +971,18 @@ PN.editor = (function () {
     const t = textsOf(pv.idx)[idx]; if (!t) return;
     const dx = (e.clientX - textDrag.startX) / pv.scale;
     const dy = (e.clientY - textDrag.startY) / pv.scale;
-    if (mode === 'move') {
-      t.x = Math.max(0, Math.min(pv.baseW - t.w, textDrag.x0 + dx));
-      t.y = Math.max(0, Math.min(pv.baseH - t.h, textDrag.y0 + dy));
-      textDrag.el.style.left = (t.x / pv.baseW * 100) + '%';
-      textDrag.el.style.top = (t.y / pv.baseH * 100) + '%';
-    } else {
-      t.w = Math.max(40, Math.min(pv.baseW - t.x, textDrag.w0 + dx));
-      t.h = Math.max(24, Math.min(pv.baseH - t.y, textDrag.h0 + dy));
+    const MINW = 40;
+    if (mode === 'w-right') {                     // 右の線＝右へ広げる／左へ縮める
+      t.w = Math.max(MINW, Math.min(pv.baseW - t.x, textDrag.w0 + dx));
       textDrag.el.style.width = (t.w / pv.baseW * 100) + '%';
+    } else if (mode === 'w-left') {               // 左の線＝右の端は動かさずに幅を変える
+      const right = textDrag.x0 + textDrag.w0;
+      const nx = Math.max(0, Math.min(right - MINW, textDrag.x0 + dx));
+      t.x = nx; t.w = right - nx;
+      textDrag.el.style.left = (t.x / pv.baseW * 100) + '%';
+      textDrag.el.style.width = (t.w / pv.baseW * 100) + '%';
+    } else {                                      // 下のつまみ＝高さだけ変える
+      t.h = Math.max(24, Math.min(pv.baseH - t.y, textDrag.h0 + dy));
       textDrag.el.style.height = (t.h / pv.baseH * 100) + '%';
     }
   }
@@ -989,18 +995,39 @@ PN.editor = (function () {
   }
 
   /* 何もない所をタップ＝新しいテキストボックスを作る（タッチペンでも指でもよい） */
+  let pendingText = null;      // 指でタップしたときだけ作るための覚え書き
   function onTextLayerDown(e, pv) {
     if (tool !== 'text' || suppressDraw) return;
     if (e.target.closest('.textbox')) return;      // 既存のボックス上なら何もしない
     /* ペンや指でタップすると、ブラウザはこのあと mousedown・click を追加で送ってくる。
-       できたばかりの箱の左上には「移動」つまみ、右上には × があるため、
+       できたばかりの箱の上には幅を変えるつまみと × があるため、
        そのままだと押したことになってしまう。既定の動作を止めて防ぐ。 */
     e.preventDefault();
+    /* 指のときは、離すまで待つ。動かさずに離した（＝タップした）ときだけ箱を作る。
+       動かしたときは画面のスクロールなので、箱を作らない
+       （作ってしまうと、スクロールのたびにソフトウェアキーボードが開いてしまう）。 */
+    if (e.pointerType === 'touch') {
+      pendingText = { pv, id: e.pointerId, x: e.clientX, y: e.clientY };
+      return;
+    }
+    createTextAt(e, pv);
+  }
+  /* 指を離したとき：動かしていなければ、そこに箱を作る */
+  function onTextLayerUp(e) {
+    const g = pendingText; pendingText = null;
+    if (!g || g.id !== e.pointerId) return;
+    if (tool !== 'text' || suppressDraw || !nb) return;
+    if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 10) return;   // 動かした＝スクロール
+    if (Date.now() - lastPinchEnd < 300) return;                     // ピンチの直後は作らない
+    if (!pageViews.includes(g.pv)) return;
+    createTextAt(e, g.pv);
+  }
+  function createTextAt(e, pv) {
     const [x, y] = toIntrinsic(e, pv);
     pushUndo(pv.idx);
     dropEmptyTexts(pv);              // 書かないまま残っていた箱をここで片づける
     // 縦書きなら縦長、横書きなら横長の箱で作る
-    const longSide = 260, shortSide = Math.max(40, textStyle.size * 2);
+    const longSide = 130, shortSide = Math.max(40, textStyle.size * 2);
     const bw = textStyle.vertical ? shortSide : longSide;
     const bh = textStyle.vertical ? longSide : shortSide;
     const t = {
@@ -1742,19 +1769,19 @@ PN.editor = (function () {
     document.addEventListener('pointermove', onTouchMove);
     document.addEventListener('pointerup', onTouchUp);
     document.addEventListener('pointercancel', onTouchUp);
+    document.addEventListener('pointerup', onTextLayerUp);
+    document.addEventListener('pointercancel', () => { pendingText = null; });
   }
   function onTouchDown(e) {
     if (e.pointerType !== 'touch') return;
     stopGlide();                       // 動いている最中に触れたら、その場で止める
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (ptrs.size >= 2) { one = null; if (!two) startTwo(); return; }
+    if (ptrs.size >= 2) { one = null; pendingText = null; if (!two) startTwo(); return; }
     /* 指でつかんで動かせるもの（画像・投げ縄の選択枠・テキストボックス）に
        触れたときは、ノートを一緒に動かさない。
        画像や投げ縄で選んでいる間も同じく止めておき、
-       何もない所を1回タップすれば選択が外れて、また指でスクロールできる。
-       「文字」の道具のときは、指はテキストボックスを作る・動かすために使うので
-       1本指ではスクロールしない（画面を動かすときは2本指）。 */
-    if (ptrs.size === 1 && isViewTool() && tool !== 'text' && !selImg && !lassoSel && !onGrabbable(e)) {
+       何もない所を1回タップすれば選択が外れて、また指でスクロールできる。 */
+    if (ptrs.size === 1 && isViewTool() && !selImg && !lassoSel && !onGrabbable(e)) {
       one = { id: e.pointerId, lastX: e.clientX, lastY: e.clientY, moved: 0, vx: 0, vy: 0, lastT: nowMs() };
     }
   }

@@ -75,9 +75,6 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 .imm-exit{display:inline-flex; align-items:center; gap:8px;}
 .imm-exit .ic{width:20px; height:20px;}
 
-/* テキストボックスの移動つまみ */
-.textbox.editing .tb-move{display:flex; align-items:center; justify-content:center;}
-.textbox .tb-move .ic{width:15px; height:15px;}
 .ic-mask{color:var(--danger);}
 .tool-btn.active .ic-mask{color:#fff;}
 
@@ -393,17 +390,33 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 /* 「文字」道具のときだけ枠と操作つまみを見せる（授業中はじゃまにならない） */
 .textbox.editing{outline:1px dashed rgba(61,139,253,.85); outline-offset:0;}
 .textbox.editing.selected{outline:2px solid var(--accent);}
-.textbox .tb-move, .textbox .tb-del, .textbox .tb-resize{
+.textbox .tb-del, .textbox .tb-resize{
   position:absolute; width:26px; height:26px; padding:0; border-radius:50%;
   background:#000b; color:#fff; border:1px solid #fff; font-size:14px; line-height:22px;
   text-align:center; cursor:pointer; touch-action:none; display:none;
 }
-.textbox.editing .tb-move, .textbox.editing .tb-del, .textbox.editing .tb-resize{display:block;}
-.textbox .tb-move{top:-13px; left:-13px; cursor:move;}
-.textbox .tb-del{top:-13px; right:-13px;}
+.textbox.editing .tb-del, .textbox.editing .tb-resize{display:block;}
+/* × は箱の外（左上のすぐ上）へ。左右のつまみと重ならないように */
+.textbox .tb-del{top:-32px; left:-6px;}
+/* 左右の線＝幅を変えるつまみ。指でもつまめるよう、見た目より広く受け取る */
+.textbox .tb-wl, .textbox .tb-wr{
+  position:absolute; top:50%; transform:translateY(-50%);
+  width:24px; height:70%; min-height:20px; max-height:52px;
+  padding:0; border:0; background:#0000;
+  display:none; cursor:ew-resize; touch-action:none;
+}
+.textbox.editing .tb-wl, .textbox.editing .tb-wr{display:block;}
+.textbox .tb-wl{left:-12px;}
+.textbox .tb-wr{right:-12px;}
+.textbox .tb-wl::before, .textbox .tb-wr::before{
+  content:''; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:7px; height:100%; max-height:34px; border-radius:99px;
+  background:var(--accent); border:1px solid #fff6;
+}
+/* 高さを変えるつまみは下の辺の真ん中へ（幅は左右のつまみで変える） */
 .textbox .tb-resize{
-  right:-11px; bottom:-11px; width:22px; height:22px; border-radius:4px;
-  background:var(--accent); cursor:nwse-resize;
+  left:50%; margin-left:-11px; bottom:-11px; width:22px; height:22px; border-radius:4px;
+  background:var(--accent); cursor:ns-resize;
 }
 /* 書式パネル */
 .tb-select{
