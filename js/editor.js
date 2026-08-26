@@ -9,7 +9,16 @@ PN.editor = (function () {
   const DEFAULT_COLORS = ['#e0301e', '#1e6fe0', '#15a05a', '#f0a500', '#1a1a1a', '#ffffff'];
   const COLORS = DEFAULT_COLORS.slice();
   const COLORS_KEY = 'pdfnote.penColors';
-  const WIDTHS = [0.0035, 0.006, 0.010, 0.016];   // ページ幅に対する割合
+  /* ペンの太さ。値はページ幅に対する割合で持つ（どの大きさの紙でも同じ見た目になる）。
+     先生に見せるときは mm に直す。A4の紙の横幅 210mm を目安にしているので、
+     配付プリント（A4）の上では、そのままの太さで印刷される。 */
+  const MM_PER_PAGE = 210;
+  const mmOf = (w) => w * MM_PER_PAGE;
+  const widthOf = (mm) => mm / MM_PER_PAGE;
+  const MM_MIN = 0.1, MM_MAX = 2.0;
+  const DEFAULT_WIDTHS = [0.4, 0.8, 1.2, 2.0].map(widthOf);
+  const WIDTHS = DEFAULT_WIDTHS.slice();
+  const WIDTHS_KEY = 'pdfnote.penWidths';
   const DEFAULT_MASK_COLORS = ['#c0392b', '#2d6cdf', '#4a5163'];
   const MASK_COLORS = DEFAULT_MASK_COLORS.slice();
   const MASK_COLORS_KEY = 'pdfnote.maskColors';
@@ -142,17 +151,67 @@ PN.editor = (function () {
       () => color, (c) => { color = c; }, () => buildLassoColors());
     buildColorRow($('#mask-swatches'), MASK_COLORS, MASK_COLORS_KEY, DEFAULT_MASK_COLORS,
       () => maskColor, (c) => { maskColor = c; });
+    loadWidths();
+    buildWidthRow();
+  }
+
+  /* 覚えておいた太さを読み出す（数や範囲が合わないときは既定にもどす） */
+  function loadWidths() {
+    try {
+      const v = JSON.parse(localStorage.getItem(WIDTHS_KEY) || 'null');
+      if (Array.isArray(v) && v.length === DEFAULT_WIDTHS.length &&
+          v.every(mm => typeof mm === 'number' && mm >= MM_MIN && mm <= MM_MAX)) {
+        v.forEach((mm, i) => { WIDTHS[i] = widthOf(mm); });
+      }
+    } catch (e) { /* 読めなければ既定のまま */ }
+  }
+  const saveWidths = () => {
+    try { localStorage.setItem(WIDTHS_KEY, JSON.stringify(WIDTHS.map(w => Math.round(mmOf(w) * 100) / 100))); } catch (e) {}
+  };
+
+  /* 太さのボタンを並べる。
+     選んでいない太さを押す → その太さにする。
+     選んでいる太さをもう一度押す → つまみで自由に変えられる（0.1〜2.0mm）。 */
+  function buildWidthRow() {
     const ws = $('#width-btns'); ws.innerHTML = '';
     WIDTHS.forEach((w, i) => {
       const b = document.createElement('button');
-      b.className = 'width-btn' + (i === widthIdx ? ' active' : '');
+      const on = (i === widthIdx);
+      b.className = 'width-btn' + (on ? ' active' : '');
       const d = document.createElement('span'); d.className = 'dot';
-      const px = 5 + i * 6; d.style.width = px + 'px'; d.style.height = px + 'px';
+      sizeDot(d, mmOf(w));
       b.appendChild(d);
-      b.addEventListener('click', () => { widthIdx = i; ws.querySelectorAll('.width-btn').forEach((x, j) => x.classList.toggle('active', j === i)); });
+      b.title = on ? 'もう一度押すと太さを変えられます（今 ' + fmtMm(mmOf(w)) + ' mm）'
+                   : fmtMm(mmOf(w)) + ' mm';
+      b.addEventListener('click', () => {
+        if (widthIdx !== i) { widthIdx = i; buildWidthRow(); return; }   // まずは太さをえらぶだけ
+        PN.ui.widthPicker(b, mmOf(WIDTHS[i]), {
+          min: MM_MIN, max: MM_MAX,
+          // つまみを動かしている間は、押したボタンの丸だけを直す（並べ直すとちらつくため）
+          onChange: (mm) => {
+            WIDTHS[i] = widthOf(mm); saveWidths();
+            sizeDot(d, mm);
+            b.title = 'もう一度押すと太さを変えられます（今 ' + fmtMm(mm) + ' mm）';
+          },
+          onReset: () => {
+            DEFAULT_WIDTHS.forEach((v, j) => { WIDTHS[j] = v; });
+            saveWidths(); buildWidthRow();
+            PN.ui.toast('太さをもとにもどしました');
+          }
+        });
+      });
       ws.appendChild(b);
     });
   }
+  /* 太さが見て分かる大きさの丸にする */
+  function sizeDot(dot, mm) {
+    const px = Math.max(4, Math.min(20, 2.5 + mm * 7.5));
+    dot.style.width = px + 'px'; dot.style.height = px + 'px';
+  }
+  const fmtMm = (v) => {
+    const n = Math.round(v * 100) / 100;
+    return n.toFixed((Math.round(n * 100) % 10 === 0) ? 1 : 2);
+  };
 
   function bindToolbar() {
     document.querySelectorAll('.tool-btn').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));

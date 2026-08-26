@@ -310,6 +310,59 @@ PN.ui = (function () {
     document.getElementById('modal-root').appendChild(back);
     placeNear(box, anchorEl);
   }
+  /* ---------- 太さえらび ----------
+     いま選んでいる太さのボタンをもう一度押したときに開く。
+     つまみを動かすとその場で太さが変わる（閉じるまで何度でも試せる）。 */
+  function widthPicker(anchorEl, mm, opts) {
+    opts = opts || {};
+    const min = opts.min != null ? opts.min : 0.1;
+    const max = opts.max != null ? opts.max : 2.0;
+    const step = opts.step || 0.05;
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.style.background = 'transparent';
+    back.style.alignItems = 'stretch';
+    back.style.justifyContent = 'stretch';
+    const box = document.createElement('div');
+    box.className = 'modal wp';
+    box.style.position = 'absolute';
+    box.style.visibility = 'hidden';
+    box.innerHTML =
+      '<div class="wp-head">ペンの太さ</div>' +
+      '<div class="wp-preview"><span class="wp-line"></span></div>' +
+      '<div class="wp-row">' +
+        '<span class="wp-val"></span>' +
+        '<input type="range" class="wp-range">' +
+      '</div>' +
+      '<div class="wp-scale"><span>' + fmtMm(min) + '</span><span>' + fmtMm(max) + '</span></div>' +
+      (opts.onReset ? '<div class="wp-foot"><button type="button" class="bar-btn ghost wp-reset">もとにもどす</button></div>' : '');
+
+    const range = box.querySelector('.wp-range');
+    const val = box.querySelector('.wp-val');
+    const line = box.querySelector('.wp-line');
+    range.min = min; range.max = max; range.step = step;
+    range.value = Math.min(max, Math.max(min, mm));
+    const show = (v) => {
+      val.textContent = fmtMm(v) + ' mm';
+      line.style.height = Math.max(1, v * 6.2) + 'px';   // 画面上のA4はおよそ6.2px/mm
+    };
+    show(+range.value);
+    range.addEventListener('input', () => { show(+range.value); if (opts.onChange) opts.onChange(+range.value); });
+
+    const reset = box.querySelector('.wp-reset');
+    if (reset) reset.addEventListener('click', () => { back.remove(); opts.onReset(); });
+
+    back.appendChild(box);
+    back.addEventListener('click', (e) => { if (e.target === back) back.remove(); });
+    document.getElementById('modal-root').appendChild(back);
+    placeNear(box, anchorEl);
+  }
+  /* 0.5 → "0.5"、1.25 → "1.25"、2 → "2.0" */
+  function fmtMm(v) {
+    const n = Math.round(v * 100) / 100;
+    return n.toFixed((Math.round(n * 100) % 10 === 0) ? 1 : 2);
+  }
+
   /* #rgb / #rrggbb / rrggbb を #rrggbb にそろえる。だめなら null */
   function normHex(v) {
     const m = String(v || '').trim().replace(/^#/, '');
@@ -340,5 +393,5 @@ PN.ui = (function () {
   }
   const escapeAttr = escapeHTML;
 
-  return { toast, busy, confirm, info, form, choose, menu, colorPicker, escapeHTML, icon };
+  return { toast, busy, confirm, info, form, choose, menu, colorPicker, widthPicker, escapeHTML, icon };
 })();
