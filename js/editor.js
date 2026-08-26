@@ -1386,7 +1386,8 @@ PN.editor = (function () {
     const el = document.documentElement; const p = el.requestFullscreen && el.requestFullscreen(); if (p && p.catch) p.catch(() => {});
     updateRouting();
     setTimeout(relayoutAll, 80);
-    PN.ui.toast('全画面：そのままペンで書けます。2本指でスクロール／ピンチ拡大、右下の「メニュー」で操作パネル');
+    PN.ui.toast('全画面にしました。終了するには Esc キー、またはタブレットは画面を長押しして × をタップします。'
+      + 'そのままペンで書けます（2本指でスクロール／ピンチ拡大、右下の「メニュー」で操作パネル）。', 7000);
   }
   function exitImmersive() {
     immersive = false; paletteOpen = false;
