@@ -933,13 +933,37 @@ PN.editor = (function () {
     }
     return inside;
   }
-  /* 物の「代表点」が囲みの中にあるかで判定する */
-  function boxInPoly(o, poly) {
-    const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
-    if (!pointInPoly(cx, cy, poly)) return false;
-    // 四隅のうち3つ以上入っていれば「囲まれた」とみなす
-    const corners = [[o.x, o.y], [o.x + o.w, o.y], [o.x, o.y + o.h], [o.x + o.w, o.y + o.h]];
-    return corners.filter(c => pointInPoly(c[0], c[1], poly)).length >= 3;
+  /* 線分 ab と 線分 cd が交わるか */
+  function segCross(a, b, c, d) {
+    const cr = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+    const d1 = cr(c, d, a), d2 = cr(c, d, b), d3 = cr(a, b, c), d4 = cr(a, b, d);
+    return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0));
+  }
+  /* 線分 ab が囲みの線と交わるか */
+  function segCrossesPoly(a, b, poly) {
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++)
+      if (segCross(a, b, poly[j], poly[i])) return true;
+    return false;
+  }
+  /* 囲みを囲む長方形（遠くのものを手早く除くため） */
+  function polyBBox(poly) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    poly.forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); });
+    return { x0, y0, x1, y1 };
+  }
+  const bbOverlap = (bb, x0, y0, x1, y1) => !(x1 < bb.x0 || x0 > bb.x1 || y1 < bb.y0 || y0 > bb.y1);
+
+  /* 箱が囲みに少しでも重なっていれば選ぶ（全部を囲まなくてよい）。
+     ①角が囲みの中 ②囲みが箱の中 ③辺どうしが交わる のどれかで「重なり」とみなす。
+     この3つで、重なっている場合をもれなく拾える。 */
+  function boxHitsPoly(o, poly, bb) {
+    const x0 = o.x, y0 = o.y, x1 = o.x + o.w, y1 = o.y + o.h;
+    if (bb && !bbOverlap(bb, x0, y0, x1, y1)) return false;
+    const corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    for (const c of corners) if (pointInPoly(c[0], c[1], poly)) return true;
+    for (const p of poly) if (p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1) return true;
+    for (let i = 0; i < 4; i++) if (segCrossesPoly(corners[i], corners[(i + 1) % 4], poly)) return true;
+    return false;
   }
   /* テキストボックスの「実際に文字が見えている範囲」を内部座標で返す。
      箱は中身より大きいことが多く（作成時は横260px）、「文字」以外の道具では
@@ -969,17 +993,27 @@ PN.editor = (function () {
       w: (x1 - x0) / pv.scale, h: (y1 - y0) / pv.scale
     };
   }
-  /* 文字は「見えている範囲」か「箱そのもの」のどちらかが囲まれていれば選ぶ */
-  function textInPoly(pv, idx, o, poly) {
-    if (boxInPoly(o, poly)) return true;
+  /* 文字は、見えている文字のまわりで判定する。
+     箱は中身よりずっと大きいことが多く（作成時は横260px）、そのまま使うと
+     文字から離れた所を囲んだだけで選ばれてしまうため。
+     まだ描画されていないページでは箱そのもので判定する。 */
+  function textHitsPoly(pv, idx, o, poly, bb) {
     const v = textVisibleRect(pv, idx);
-    return !!v && boxInPoly(v, poly);
+    return boxHitsPoly(v || o, poly, bb);
   }
-  function strokeInPoly(s, poly) {
+  /* 線は、一部でも囲みにかかっていれば選ぶ。
+     ①点が囲みの中にある ②線が囲みの線と交わる のどちらかで選ぶ。
+     ②があるので、点の少ない「直線」を横切っただけでも選べる。 */
+  function strokeHitsPoly(s, poly, bb) {
     const pts = s.points || []; if (!pts.length) return false;
-    let inside = 0;
-    pts.forEach(p => { if (pointInPoly(p[0], p[1], poly)) inside++; });
-    return inside / pts.length >= 0.6;      // 6割以上入っていれば選択
+    if (bb) {                                  // 遠くの線は手早く除く
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
+      if (!bbOverlap(bb, x0, y0, x1, y1)) return false;
+    }
+    for (const p of pts) if (pointInPoly(p[0], p[1], poly)) return true;
+    for (let i = 1; i < pts.length; i++) if (segCrossesPoly(pts[i - 1], pts[i], poly)) return true;
+    return false;
   }
 
   function selectionBox(pv, items) {
@@ -998,10 +1032,11 @@ PN.editor = (function () {
   function finishLasso(pv, poly) {
     const ann = annOf(pv.idx);
     const items = { strokes: [], images: [], texts: [], masks: [] };
-    if (lassoPick.strokes) ann.strokes.forEach((s, i) => { if (strokeInPoly(s, poly)) items.strokes.push(i); });
-    if (lassoPick.images) ann.images.forEach((o, i) => { if (boxInPoly(o, poly)) items.images.push(i); });
-    if (lassoPick.texts) ann.texts.forEach((o, i) => { if (textInPoly(pv, i, o, poly)) items.texts.push(i); });
-    if (lassoPick.masks) ann.masks.forEach((o, i) => { if (boxInPoly(o, poly)) items.masks.push(i); });
+    const bb = polyBBox(poly);
+    if (lassoPick.strokes) ann.strokes.forEach((s, i) => { if (strokeHitsPoly(s, poly, bb)) items.strokes.push(i); });
+    if (lassoPick.images) ann.images.forEach((o, i) => { if (boxHitsPoly(o, poly, bb)) items.images.push(i); });
+    if (lassoPick.texts) ann.texts.forEach((o, i) => { if (textHitsPoly(pv, i, o, poly, bb)) items.texts.push(i); });
+    if (lassoPick.masks) ann.masks.forEach((o, i) => { if (boxHitsPoly(o, poly, bb)) items.masks.push(i); });
     if (!selCount(items)) { clearLasso(); PN.ui.toast('囲みの中に選べるものがありませんでした'); return; }
     lassoSel = { pv, items, box: selectionBox(pv, items) };
     renderLasso();
