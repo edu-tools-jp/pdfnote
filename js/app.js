@@ -7,7 +7,7 @@ PN.app = (function () {
 
   // ★ 公開のたびに、この値と service-worker.js の VERSION を「同じ値」に変えること。
   //    食い違うと「表示中のファイルが古いようです」の案内が出る（それが食い違い検知のしくみ）。
-  const APP_VERSION = '20260826n';
+  const APP_VERSION = '20260826p';
 
   /* 更新内容は release-notes.json に置く（サーバ上の最新をそのつど読む）。
      公開のたびに、いちばん上へ今回の版の項目を足すこと。 */
@@ -181,6 +181,41 @@ PN.app = (function () {
       upd.title = '新しい版があります。押すと最新版になります';
     }
   }
+  /* 新しい版が見つかって、入り終わるまで待つ。
+     見つからなければ FIND_MS ほどで「無し」と判断し、待たせすぎない。
+     見つかったら、入り終わるまで最大 INSTALL_MS 待つ。
+     ※ 以前は update() のあと決め打ちの時間だけ待っていたため、通信が遅いと
+       入り終わる前に「最新の状態です」と出て、そのあとで更新ボタンだけが
+       緑色になる、という食い違いが起きていた。 */
+  const FIND_MS = 2000, INSTALL_MS = 30000;
+  function waitForNewWorker(reg) {
+    return new Promise((resolve) => {
+      let settled = false, tFind = null, tInstall = null;
+      const finish = (w) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(tFind); clearTimeout(tInstall);
+        reg.removeEventListener('updatefound', onFound);
+        resolve(w || null);
+      };
+      const watch = (nw) => {
+        if (!nw) return;
+        clearTimeout(tFind);                       // 見つかったので「無し」の判断はやめる
+        tInstall = setTimeout(() => finish(reg.waiting || null), INSTALL_MS);
+        if (nw.state === 'installed') { finish(reg.waiting || nw); return; }
+        nw.addEventListener('statechange', () => {
+          if (nw.state === 'installed') finish(reg.waiting || nw);
+          else if (nw.state === 'redundant') finish(null);   // 入れ替えに失敗した
+        });
+      };
+      const onFound = () => watch(reg.installing);
+      if (reg.waiting) { finish(reg.waiting); return; }
+      reg.addEventListener('updatefound', onFound);
+      tFind = setTimeout(() => finish(reg.waiting || waitingWorker), FIND_MS);
+      watch(reg.installing);                       // もう始まっていることもある
+    });
+  }
+
   async function checkForUpdate() {
     if (!swReg) { PN.ui.toast('この開き方では更新機能は使えません（GitHub Pages のURLで開いてください）'); return; }
     // すでに新版が待機していれば、それを適用
@@ -189,9 +224,9 @@ PN.app = (function () {
     // サーバに最新があるか確認
     PN.ui.busy(true, '更新を確認中…');
     try {
-      await swReg.update();
-      await new Promise((r) => setTimeout(r, 1200));
-      const w = swReg.waiting || waitingWorker;
+      const watching = waitForNewWorker(swReg);   // update() より先に見張りを始める
+      try { await swReg.update(); } catch (e) { /* 見張りの結果で判断する */ }
+      const w = await watching;
       PN.ui.busy(false);
       if (w) {
         await askAndUpdate(w);
