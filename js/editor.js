@@ -79,6 +79,8 @@ PN.editor = (function () {
 
   /* ---------- ツールバー ---------- */
 
+  let drawTextColors = null;     // 文字の色の並びを描き直す（syncTextControls から呼ぶ）
+
   /* 白っぽい色か（上に載せる印の色を決めるため） */
   function isLightColor(hex) {
     const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ''));
@@ -129,6 +131,7 @@ PN.editor = (function () {
       });
     };
     draw();
+    return draw;
   }
 
   function buildSwatches() {
@@ -638,7 +641,9 @@ PN.editor = (function () {
     { label: '欧文（Times）', css: '"Times New Roman",Times,serif' }
   ];
   const TEXT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 80];
-  const TEXT_COLORS = ['#1a1a1a', '#e0301e', '#1e6fe0', '#15a05a', '#f0a500', '#ffffff'];
+  const DEFAULT_TEXT_COLORS = ['#1a1a1a', '#e0301e', '#1e6fe0', '#15a05a', '#f0a500', '#ffffff'];
+  const TEXT_COLORS = DEFAULT_TEXT_COLORS.slice();
+  const TEXT_COLORS_KEY = 'pdfnote.textColors';
 
   /* 新しいテキストボックスに使う書式（最後に使った設定を覚えておく） */
   let textStyle = { font: BASE_FONTS[0].css, size: 20, color: '#1a1a1a', bold: false, align: 'left', vertical: false, bg: 'none' };
@@ -696,13 +701,11 @@ PN.editor = (function () {
     }
     const cs = $('#text-colors');
     if (cs && !cs.children.length) {
-      TEXT_COLORS.forEach((c, i) => {
-        const b = document.createElement('span');
-        b.className = 'color-swatch' + (i === 0 ? ' active' : '');
-        b.style.background = c; b.dataset.color = c;
-        b.addEventListener('click', () => applyTextStyle({ color: c }));
-        cs.appendChild(b);
-      });
+      loadPalette(TEXT_COLORS_KEY, TEXT_COLORS, DEFAULT_TEXT_COLORS);
+      textStyle.color = TEXT_COLORS[0];
+      drawTextColors = buildColorRow(cs, TEXT_COLORS, TEXT_COLORS_KEY, DEFAULT_TEXT_COLORS,
+        () => (selectedTextObj() || textStyle).color,
+        (c) => applyTextStyle({ color: c }));
     }
     $('#text-bold').addEventListener('click', () => applyTextStyle({ bold: !textStyle.bold }));
     $('#text-vertical').addEventListener('click', () => applyTextStyle({ vertical: !textStyle.vertical }));
@@ -748,7 +751,7 @@ PN.editor = (function () {
     const t = selectedTextObj() || textStyle;
     const sel = $('#text-font'); if (sel) sel.value = t.font;
     const size = $('#text-size'); if (size) size.value = t.size;
-    document.querySelectorAll('#text-colors .color-swatch').forEach(s => s.classList.toggle('active', s.dataset.color === t.color));
+    if (drawTextColors) drawTextColors();      // 選ばれている色の印を付け直す
     $('#text-bold').classList.toggle('active', !!t.bold);
     $('#text-vertical').classList.toggle('active', !!t.vertical);
     $('#text-bg').classList.toggle('active', t.bg === 'white');
