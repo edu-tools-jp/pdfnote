@@ -264,16 +264,6 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
   background:#000a; color:#fff; border:1px solid #fff; font-size:15px; line-height:24px; text-align:center; padding:0;
 }
 
-/* 上バーの操作ヒント（2本指でページ移動）
-   「ページ一覧」「＋ページ」と同じ行のまま、その行の左端に表示する。
-   案内を出すあいだはボタン群を独立した行にして、案内を左端・ボタンを右端に振り分ける */
-.swipe-hint{
-  margin-left:auto; padding-left:12px; flex:0 0 auto;
-  color:var(--muted); font-size:14px; line-height:1.4; white-space:nowrap;
-}
-.swipe-hint b{color:var(--ink);}
-@media (max-width:1500px){ .swipe-hint{display:none !important;} }
-
 /* 画面が狭いときは、ラベルを段階的に畳んでアイコンだけにする（2行を保つため）。
    授業中に使う「全部みせる／全部かくす」のラベルは、できるだけ最後まで残す。 */
 @media (max-width:1700px){
@@ -437,4 +427,3 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 
 /* タッチで描画中にスクロール/選択が起きないように */
 .pageview, .pageview .layer{touch-action:none; user-select:none; -webkit-user-select:none;}
-.ed-scroller.panning{cursor:grab;}
