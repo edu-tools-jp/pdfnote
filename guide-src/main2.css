@@ -68,6 +68,15 @@ b,strong{ font-weight:900; }
 .shot img{ display:block; width:100%; border-radius:2.4mm; border:.45mm solid #454e63; }
 .shot figcaption{ color:var(--muted); font-size:7pt; text-align:center; margin-top:1.6mm; }
 
+.uh3{ font-size:8.6pt; font-weight:900; margin:3mm 0 1.4mm; }
+.uh3 span{ font-size:7.2pt; font-weight:400; color:var(--muted); margin-left:1.2mm; }
+.ur0{ font-size:7.4pt; line-height:1.6; color:var(--ink-2); margin-bottom:.6mm; }
+.ur{ font-size:7.4pt; line-height:1.6; color:var(--ink-2); margin-bottom:.8mm; }
+.ub{ display:inline-block; font-size:6.6pt; font-weight:900; color:#fff; background:var(--blue-d);
+     border-radius:1mm; padding:0 1.6mm; margin-right:1.4mm; }
+.ub.edge{ background:var(--green); }
+.un{ font-size:7.2pt; line-height:1.55; color:var(--muted); margin-top:1mm; }
+
 /* ---------- 今回のアップデート ---------- */
 .news{ border:.5mm solid #f3c4bb; background:var(--red-l); border-radius:2.6mm;
        padding:3.4mm 4mm; margin-bottom:5.5mm; }
