@@ -4,9 +4,15 @@ window.PN = window.PN || {};
 PN.editor = (function () {
   const $ = (s) => document.querySelector(s);
 
-  const COLORS = ['#e0301e', '#1e6fe0', '#15a05a', '#f0a500', '#1a1a1a', '#ffffff'];
+  /* ペンの色。先生が入れ替えられるので、中身を書き換えて localStorage に覚えておく
+     （並び自体は変えないので、他の場所からの参照はそのまま使える） */
+  const DEFAULT_COLORS = ['#e0301e', '#1e6fe0', '#15a05a', '#f0a500', '#1a1a1a', '#ffffff'];
+  const COLORS = DEFAULT_COLORS.slice();
+  const COLORS_KEY = 'pdfnote.penColors';
   const WIDTHS = [0.0035, 0.006, 0.010, 0.016];   // ページ幅に対する割合
-  const MASK_COLORS = ['#c0392b', '#2d6cdf', '#4a5163'];
+  const DEFAULT_MASK_COLORS = ['#c0392b', '#2d6cdf', '#4a5163'];
+  const MASK_COLORS = DEFAULT_MASK_COLORS.slice();
+  const MASK_COLORS_KEY = 'pdfnote.maskColors';
   const ZOOM_MIN = 0.25, ZOOM_MAX = 6;
   const PAD = 20;
 
@@ -72,15 +78,67 @@ PN.editor = (function () {
   }
 
   /* ---------- ツールバー ---------- */
+
+  /* 白っぽい色か（上に載せる印の色を決めるため） */
+  function isLightColor(hex) {
+    const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ''));
+    if (!m) return false;
+    const n = parseInt(m[1], 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 150;
+  }
+
+  /* 覚えておいた色を読み出す（数が合わないときは既定にもどす） */
+  function loadPalette(key, list, def) {
+    try {
+      const v = JSON.parse(localStorage.getItem(key) || 'null');
+      if (Array.isArray(v) && v.length === def.length && v.every(c => /^#[0-9a-f]{6}$/i.test(c))) {
+        v.forEach((c, i) => { list[i] = c; });
+      }
+    } catch (e) { /* 読めなければ既定のまま */ }
+  }
+  const savePalette = (key, list) => { try { localStorage.setItem(key, JSON.stringify(list)); } catch (e) {} };
+
+  /* 色のボタンを並べる。
+     選んでいない色を押す → その色にする。
+     選んでいる色をもう一度押す → 色そのものを選び直せる（プリセット／カスタム）。 */
+  function buildColorRow(host, list, key, def, getCur, setCur, after) {
+    const draw = () => {
+      host.innerHTML = '';
+      list.forEach((c, i) => {
+        const b = document.createElement('span');
+        const on = (getCur() === c);
+        b.className = 'color-swatch' + (on ? ' active' : '');
+        b.style.background = c; b.dataset.color = c;
+        b.style.setProperty('--mark', isLightColor(c) ? '#1a1a1a' : '#ffffff');   // 「∨」印を見える色にする
+        b.title = on ? 'もう一度押すと、この色を変えられます' : c;
+        b.addEventListener('click', () => {
+          if (getCur() !== list[i]) { setCur(list[i]); draw(); return; }   // まずは色をえらぶだけ
+          PN.ui.colorPicker(b, list[i], (picked) => {
+            list[i] = picked; setCur(picked);
+            savePalette(key, list); draw(); if (after) after();
+          }, {
+            onReset: () => {
+              def.forEach((c2, j) => { list[j] = c2; });
+              setCur(list[i]); savePalette(key, list); draw(); if (after) after();
+              PN.ui.toast('色をもとにもどしました');
+            }
+          });
+        });
+        host.appendChild(b);
+      });
+    };
+    draw();
+  }
+
   function buildSwatches() {
-    const cs = $('#color-swatches'); cs.innerHTML = '';
-    COLORS.forEach((c, i) => {
-      const b = document.createElement('span');
-      b.className = 'color-swatch' + (i === 0 ? ' active' : '');
-      b.style.background = c; b.dataset.color = c;
-      b.addEventListener('click', () => { color = c; cs.querySelectorAll('.color-swatch').forEach(x => x.classList.toggle('active', x.dataset.color === c)); });
-      cs.appendChild(b);
-    });
+    loadPalette(COLORS_KEY, COLORS, DEFAULT_COLORS);
+    loadPalette(MASK_COLORS_KEY, MASK_COLORS, DEFAULT_MASK_COLORS);
+    color = COLORS[0]; maskColor = MASK_COLORS[0];
+    buildColorRow($('#color-swatches'), COLORS, COLORS_KEY, DEFAULT_COLORS,
+      () => color, (c) => { color = c; }, () => buildLassoColors());
+    buildColorRow($('#mask-swatches'), MASK_COLORS, MASK_COLORS_KEY, DEFAULT_MASK_COLORS,
+      () => maskColor, (c) => { maskColor = c; });
     const ws = $('#width-btns'); ws.innerHTML = '';
     WIDTHS.forEach((w, i) => {
       const b = document.createElement('button');
@@ -90,14 +148,6 @@ PN.editor = (function () {
       b.appendChild(d);
       b.addEventListener('click', () => { widthIdx = i; ws.querySelectorAll('.width-btn').forEach((x, j) => x.classList.toggle('active', j === i)); });
       ws.appendChild(b);
-    });
-    const ms = $('#mask-swatches'); ms.innerHTML = '';
-    MASK_COLORS.forEach((c, i) => {
-      const b = document.createElement('span');
-      b.className = 'color-swatch' + (i === 0 ? ' active' : '');
-      b.style.background = c; b.dataset.color = c;
-      b.addEventListener('click', () => { maskColor = c; ms.querySelectorAll('.color-swatch').forEach(x => x.classList.toggle('active', x.dataset.color === c)); });
-      ms.appendChild(b);
     });
   }
 
@@ -677,16 +727,20 @@ PN.editor = (function () {
     $('#lasso-paste').addEventListener('click', pasteClipboard);
     $('#lasso-dup').addEventListener('click', duplicateSelection);
     $('#lasso-delete').addEventListener('click', () => deleteSelection(false));
-    const cs = $('#lasso-colors');
-    if (cs && !cs.children.length) {
-      COLORS.forEach((c) => {
-        const b = document.createElement('span');
-        b.className = 'color-swatch'; b.style.background = c; b.dataset.color = c;
-        b.addEventListener('click', () => recolorSelection(c));
-        cs.appendChild(b);
-      });
-    }
+    buildLassoColors();
     updateLassoButtons();
+  }
+
+  /* 投げ縄の「色を変える」は、ペンの色をそのまま使う（入れ替えたら付いてくる） */
+  function buildLassoColors() {
+    const cs = $('#lasso-colors'); if (!cs) return;
+    cs.innerHTML = '';
+    COLORS.forEach((c) => {
+      const b = document.createElement('span');
+      b.className = 'color-swatch'; b.style.background = c; b.dataset.color = c; b.title = c;
+      b.addEventListener('click', () => recolorSelection(c));
+      cs.appendChild(b);
+    });
   }
 
   /* 書式パネルの表示を、いまの設定（または選択中のボックス）に合わせる */
