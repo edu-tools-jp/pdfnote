@@ -303,14 +303,22 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 /* ---------- 投げ縄の選択枠 ---------- */
 .lasso-sel{
   position:absolute; box-sizing:border-box; z-index:6;
-  pointer-events:auto;      /* 枠だけ操作を受け取る（枠の外のタップは下の投げ縄に通す） */
-  border:2px dashed var(--accent); background:rgba(61,139,253,.10);
-  cursor:move; touch-action:none; border-radius:3px;
+  pointer-events:none;      /* 中身（曲線とつまみ）だけが操作を受け取る */
+  touch-action:none;
+}
+/* 囲んだときの曲線を、そのまま選択の形として残す */
+.lasso-sel .ls-shape{
+  position:absolute; inset:0; display:block; overflow:visible;   /* 枠からはみ出す曲線も描く */
+}
+.lasso-sel .ls-shape polygon{
+  fill:rgba(61,139,253,.10); stroke:var(--accent); stroke-width:2; stroke-dasharray:6 4;
+  pointer-events:auto;      /* 曲線の内側だけをつかめる（外のタップは下の投げ縄に通す） */
+  cursor:move;
 }
 .lasso-sel .ls-resize{
   position:absolute; right:-11px; bottom:-11px; width:22px; height:22px; padding:0;
   border-radius:4px; background:var(--accent); border:1px solid #fff;
-  cursor:nwse-resize; touch-action:none;
+  pointer-events:auto; cursor:nwse-resize; touch-action:none;
 }
 /* 投げ縄パネル */
 .lasso-pick{display:flex; gap:10px; align-items:center; font-size:13px; color:var(--ink); white-space:nowrap;}
