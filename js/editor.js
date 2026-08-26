@@ -768,12 +768,16 @@ PN.editor = (function () {
     body.addEventListener('pointerdown', (e) => { e.stopPropagation(); selectText(pv, idx); });
     body.addEventListener('input', () => { textsOf(pv.idx)[idx].text = body.innerText; markDirty(); });
     body.addEventListener('blur', () => {
-      const t = textsOf(pv.idx)[idx];
-      if (t && !(t.text || '').trim()) {        // 空のまま離れたら消す
-        textsOf(pv.idx).splice(idx, 1);
-        if (selText && selText.pv === pv && selText.idx === idx) selText = null;
-        renderTexts(pv); markDirty();
-      }
+      // 一瞬だけ焦点が外れて、すぐ戻ってくることがある。1回待ってから確かめる
+      setTimeout(() => {
+        if (document.activeElement === body) return;
+        const t = textsOf(pv.idx)[idx];
+        if (t && !(t.text || '').trim()) {      // 空のまま離れたら消す
+          textsOf(pv.idx).splice(idx, 1);
+          if (selText && selText.pv === pv && selText.idx === idx) selText = null;
+          renderTexts(pv); markDirty();
+        }
+      }, 0);
     });
     del.addEventListener('pointerdown', (e) => e.stopPropagation());
     del.addEventListener('click', (e) => {
@@ -842,6 +846,10 @@ PN.editor = (function () {
     if (tool !== 'text' || suppressDraw) return;
     if (penOnly() && e.pointerType === 'touch') return;
     if (e.target.closest('.textbox')) return;      // 既存のボックス上なら何もしない
+    /* ペンや指でタップすると、ブラウザはこのあと mousedown を追加で送ってくる。
+       そのままだと、できたばかりの箱の「移動」つまみに焦点が移り、
+       中身が空のまま離れたとみなされて箱が消えてしまう。既定の動作を止めて防ぐ。 */
+    e.preventDefault();
     const [x, y] = toIntrinsic(e, pv);
     pushUndo(pv.idx);
     // 縦書きなら縦長、横書きなら横長の箱で作る
@@ -1166,6 +1174,15 @@ PN.editor = (function () {
     pv.mask.addEventListener('pointerup', (e) => onMaskUp(e, pv));
     pv.mask.addEventListener('click', (e) => onMaskClick(e, pv));
     pv.text.addEventListener('pointerdown', (e) => onTextLayerDown(e, pv));
+    pv.img.addEventListener('pointerdown', (e) => onImgLayerDown(e, pv));
+  }
+
+  /* 画像レイヤーの何もない所をタップ＝選択を外す（＝指でスクロールできる状態に戻す） */
+  function onImgLayerDown(e, pv) {
+    if (tool !== 'image' || !selImg) return;
+    if (e.target.closest('.imgbox')) return;
+    selImg = null;
+    pv.img.querySelectorAll('.imgbox.selected').forEach(b => b.classList.remove('selected'));
   }
   function toIntrinsic(e, pv) {
     const r = pv.el.getBoundingClientRect();
@@ -1448,7 +1465,9 @@ PN.editor = (function () {
     stopGlide();                       // 動いている最中に触れたら、その場で止める
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ptrs.size >= 2) { one = null; if (!two) startTwo(); return; }
-    if (ptrs.size === 1 && isViewTool()) {
+    // 画像を選んでいる間は、指で大きさや位置を直せるようにノートを止めておく
+    // （画像のない所を1回タップすれば選択が外れ、また指でスクロールできる）
+    if (ptrs.size === 1 && isViewTool() && !selImg) {
       one = { id: e.pointerId, lastX: e.clientX, lastY: e.clientY, moved: 0, vx: 0, vy: 0, lastT: nowMs() };
     }
   }
@@ -1805,7 +1824,7 @@ PN.editor = (function () {
     if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); goPage(currentIdx + 1); }
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); goPage(currentIdx - 1); }
     else if (e.key === 'Escape' && immersive) { exitImmersive(); }
-    else { const map = { '1': 'pen', '2': 'line', '3': 'eraser', '4': 'text', '5': 'lasso', '6': 'mask', '7': 'reveal' }; if (map[e.key]) setTool(map[e.key]); }
+    else { const map = { '1': 'lasso', '2': 'pen', '3': 'line', '4': 'eraser', '5': 'text', '6': 'mask', '7': 'reveal' }; if (map[e.key]) setTool(map[e.key]); }
   }
 
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
