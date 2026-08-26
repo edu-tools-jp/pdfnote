@@ -724,32 +724,61 @@ PN.editor = (function () {
   }
 
   /* ---- 描画（DOM） ---- */
+
+  /* 箱の位置・大きさ・書式を反映する。入力中の文字にはさわらない */
+  function styleTextBox(el, body, t, pv, idx) {
+    el.style.left = (t.x / pv.baseW * 100) + '%';
+    el.style.top = (t.y / pv.baseH * 100) + '%';
+    el.style.width = (t.w / pv.baseW * 100) + '%';
+    el.style.height = (t.h / pv.baseH * 100) + '%';
+    el.style.background = (t.bg === 'white') ? '#fff' : '';
+    el.classList.toggle('selected', !!(selText && selText.pv === pv && selText.idx === idx));
+    body.style.fontFamily = t.font;
+    body.style.fontSize = (t.size * pv.scale) + 'px';
+    body.style.color = t.color;
+    body.style.fontWeight = t.bold ? '700' : '400';
+    body.style.textAlign = t.align || 'left';
+    body.style.writingMode = t.vertical ? 'vertical-rl' : '';
+  }
+
+  /* 入力中の箱があるか（この文字レイヤーの中に焦点があるか） */
+  function editingBodyIn(pv) {
+    const a = document.activeElement;
+    return (a && a.classList && a.classList.contains('tb-body') && pv.text.contains(a)) ? a : null;
+  }
+
   function renderTexts(pv) {
+    if (!nb || !nb.pages.length) { pv.text.innerHTML = ''; return; }
+    const arr = textsOf(pv.idx);
+
+    /* 入力中の箱は作り直さない。
+       作り直すと焦点が外れ、ソフトウェアキーボードも閉じてしまう。
+       （キーボードが出ると画面が縮んで resize → relayoutAll が走り、
+         ここが呼ばれる。書きかけの箱が消える原因になっていた）
+       位置と書式だけ合わせ直し、中身の文字と入力中の変換はそのままにする。 */
+    if (editingBodyIn(pv) && pv.text.querySelectorAll('.textbox').length === arr.length) {
+      arr.forEach((t, idx) => {
+        const el = pv.text.querySelector('.textbox[data-idx="' + idx + '"]');
+        const body = el && el.querySelector('.tb-body');
+        if (el && body) styleTextBox(el, body, t, pv, idx);
+      });
+      syncTextControls();
+      return;
+    }
+
     pv.text.innerHTML = '';
-    if (!nb || !nb.pages.length) return;
     const editing = (tool === 'text');
-    textsOf(pv.idx).forEach((t, idx) => {
+    arr.forEach((t, idx) => {
       const el = document.createElement('div');
-      el.className = 'textbox' + (editing ? ' editing' : '') +
-        (selText && selText.pv === pv && selText.idx === idx ? ' selected' : '');
+      el.className = 'textbox' + (editing ? ' editing' : '');
       el.dataset.idx = idx;
-      el.style.left = (t.x / pv.baseW * 100) + '%';
-      el.style.top = (t.y / pv.baseH * 100) + '%';
-      el.style.width = (t.w / pv.baseW * 100) + '%';
-      el.style.height = (t.h / pv.baseH * 100) + '%';
-      if (t.bg === 'white') el.style.background = '#fff';
 
       const body = document.createElement('div');
       body.className = 'tb-body';
-      body.style.fontFamily = t.font;
-      body.style.fontSize = (t.size * pv.scale) + 'px';
-      body.style.color = t.color;
-      body.style.fontWeight = t.bold ? '700' : '400';
-      body.style.textAlign = t.align || 'left';
-      if (t.vertical) body.style.writingMode = 'vertical-rl';
       body.textContent = t.text || '';
       if (editing) { body.contentEditable = 'true'; body.spellcheck = false; }
       el.appendChild(body);
+      styleTextBox(el, body, t, pv, idx);
 
       if (editing) {
         const mv = document.createElement('button'); mv.className = 'tb-move'; mv.innerHTML = PN.ui.icon('move'); mv.title = 'ドラッグで移動';
@@ -761,6 +790,9 @@ PN.editor = (function () {
       pv.text.appendChild(el);
     });
     syncTextControls();
+    // 投げ縄の選択枠はこのレイヤーに重ねているので、作り直したら付け直す
+    // （付け直さないと、枠だけ消えて選択が残り、指のスクロールが止まったままになる）
+    if (lassoSel && lassoSel.pv === pv) renderLasso();
   }
 
   /* ---- 1つのテキストボックスの操作 ---- */
@@ -770,6 +802,7 @@ PN.editor = (function () {
     body.addEventListener('blur', () => {
       // 一瞬だけ焦点が外れて、すぐ戻ってくることがある。1回待ってから確かめる
       setTimeout(() => {
+        if (!nb || !nb.pages[pv.idx]) return;   // ノートを閉じたあと・ページが無くなったあとは何もしない
         if (document.activeElement === body) return;
         const t = textsOf(pv.idx)[idx];
         if (t && !(t.text || '').trim()) {      // 空のまま離れたら消す
@@ -1196,7 +1229,12 @@ PN.editor = (function () {
     stopGlide();                       // 描き始めたら慣性は止める
     if (gesture) return;                 // 既に1本で描画中：他の指（手のひら等）は無視
     // ペンだけで書く設定のときは、指・手のひらでは何もしない（1本指はスクロールになる）
-    if (penOnly() && e.pointerType === 'touch') return;
+    if (penOnly() && e.pointerType === 'touch') {
+      // 投げ縄で選んでいるとき、何もない所を指でタップしたら選択を外す
+      // （＝また指でスクロールできる状態に戻す）
+      if (tool === 'lasso' && lassoSel) clearLasso();
+      return;
+    }
     pv.live.setPointerCapture(e.pointerId); liveDrawnUpTo = 0;
     const [x, y] = toIntrinsic(e, pv);
     const common = { pv, pointerId: e.pointerId, downX: e.clientX, downY: e.clientY, downT: Date.now() };
@@ -1451,6 +1489,9 @@ PN.editor = (function () {
 
   /* ---------- 指の操作：1本指スクロール（ビュー道具）＋ 2本指スクロール/ピンチ ---------- */
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  /* 指でつかんで動かせるもの（画像・投げ縄の選択枠・テキストボックス）の上か */
+  const onGrabbable = (e) =>
+    !!(e.target && e.target.closest && e.target.closest('.imgbox, .lasso-sel, .textbox'));
   // ペンだけで書く設定なら、どの道具でも1本指はスクロール。めくりは従来どおり1本指で操作できる
   const isViewTool = () => (tool === 'reveal' || penOnly());
 
@@ -1465,9 +1506,11 @@ PN.editor = (function () {
     stopGlide();                       // 動いている最中に触れたら、その場で止める
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ptrs.size >= 2) { one = null; if (!two) startTwo(); return; }
-    // 画像を選んでいる間は、指で大きさや位置を直せるようにノートを止めておく
-    // （画像のない所を1回タップすれば選択が外れ、また指でスクロールできる）
-    if (ptrs.size === 1 && isViewTool() && !selImg) {
+    /* 指でつかんで動かせるもの（画像・投げ縄の選択枠・テキストボックス）に
+       触れたときは、ノートを一緒に動かさない。
+       画像や投げ縄で選んでいる間も同じく止めておき、
+       何もない所を1回タップすれば選択が外れて、また指でスクロールできる。 */
+    if (ptrs.size === 1 && isViewTool() && !selImg && !lassoSel && !onGrabbable(e)) {
       one = { id: e.pointerId, lastX: e.clientX, lastY: e.clientY, moved: 0, vx: 0, vy: 0, lastT: nowMs() };
     }
   }
