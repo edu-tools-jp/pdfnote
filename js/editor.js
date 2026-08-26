@@ -43,16 +43,16 @@ PN.editor = (function () {
   /* ピンチ・全画面 */
   const ptrs = new Map();
   let one = null, two = null, suppressDraw = false, lastPinchEnd = 0;
-  let immersive = false, paletteOpen = false;
+  let immersive = false;
   let scrollRAF = null;
 
   /* DOM */
-  let ed, elStage, elScroller, elPages, elNoPages, elFab;
+  let ed, elStage, elScroller, elPages, elNoPages, elExit;
 
   function init() {
     ed = $('#screen-editor');
     elStage = $('#ed-stage'); elScroller = $('#ed-scroller'); elPages = $('#ed-pages');
-    elNoPages = $('#ed-nopages'); elFab = $('#ed-imm-fab');
+    elNoPages = $('#ed-nopages'); elExit = $('#ed-imm-exit');
 
     buildSwatches();
     buildTextControls();
@@ -153,7 +153,7 @@ PN.editor = (function () {
     // 全画面状態はリセット（レイアウトのみ）
     selText = null; selImg = null; lassoSel = null;
     Object.keys(objUrls).forEach(k => delete objUrls[k]);
-    immersive = false; paletteOpen = false; ed.classList.remove('immersive', 'palette-open'); elFab.hidden = true;
+    immersive = false; ed.classList.remove('immersive'); elExit.hidden = true;
     $('#ed-title').textContent = nb.title;
     setTool('pan');   // 開いた直後は「移動」（誤って線を引かないように）
     computeBase();
@@ -186,7 +186,7 @@ PN.editor = (function () {
   async function close() {
     stopGlide();
     await flushSave();
-    if (immersive) { ed.classList.remove('immersive', 'palette-open'); immersive = false; }
+    if (immersive) { ed.classList.remove('immersive'); elExit.hidden = true; immersive = false; }
     imgUrls.forEach(u => URL.revokeObjectURL(u)); imgUrls = []; pdfCache = {}; imgCache = {};
     elPages.innerHTML = ''; pageViews = []; nb = null;
   }
@@ -1258,7 +1258,7 @@ PN.editor = (function () {
   /* マスク作成・めくり */
   let maskGesture = null;
   function onMaskDown(e, pv) {
-    if (tool !== 'mask' || !nb || suppressDraw || (immersive && !paletteOpen)) return;
+    if (tool !== 'mask' || !nb || suppressDraw || immersive) return;
     if (e.target.classList.contains('mask-del')) return;
     pv.mask.setPointerCapture(e.pointerId);
     const [x, y] = toIntrinsic(e, pv);
@@ -1363,8 +1363,7 @@ PN.editor = (function () {
   /* ---------- 全画面（イマーシブ） ---------- */
   function bindImmersive() {
     $('#ed-immersive').addEventListener('click', () => immersive ? exitImmersive() : enterImmersive());
-    $('#ed-imm-hide').addEventListener('click', closePalette);
-    elFab.addEventListener('click', openPalette);
+    elExit.addEventListener('click', exitImmersive);
   }
   // 全画面ボタンの見た目を切り替える（アイコンを消さずに中身だけ差し替える）
   function setImmersiveBtn(iconId, label, title) {
@@ -1375,26 +1374,24 @@ PN.editor = (function () {
   }
 
   function enterImmersive() {
-    immersive = true; paletteOpen = false;
-    ed.classList.add('immersive'); ed.classList.remove('palette-open');
-    elFab.hidden = false;
+    immersive = true;
+    ed.classList.add('immersive');
+    elExit.hidden = false;
     setImmersiveBtn('#i-exit-full', '全画面解除', '全画面を解除する');
     // ブラウザの全画面API（requestFullscreen）は使わない。使うと Chrome が
     // 「全画面表示を終了するには Esc キーを押します」を毎回出すため。
     // 上下のメニューはアプリ側で隠しているので、PDF は画面いっぱいに映る。
     updateRouting();
     setTimeout(relayoutAll, 80);
-    PN.ui.toast('終了するには、右下の「メニュー」→「全画面解除」を押します（Esc キーでも戻れます）。', 7000);
+    PN.ui.toast('終了するには、右上の「全画面解除」を押します（Esc キーでも戻れます）。', 6000);
   }
   function exitImmersive() {
-    immersive = false; paletteOpen = false;
-    ed.classList.remove('immersive', 'palette-open'); elFab.hidden = true;
+    immersive = false;
+    ed.classList.remove('immersive'); elExit.hidden = true;
     setImmersiveBtn('#i-full', '全画面', '全画面（メニューを隠してPDFを大きく映す）');
     updateRouting();
     setTimeout(relayoutAll, 80);
   }
-  function openPalette() { paletteOpen = true; ed.classList.add('palette-open'); elFab.hidden = true; updateRouting(); }
-  function closePalette() { paletteOpen = false; ed.classList.remove('palette-open'); if (immersive) elFab.hidden = false; updateRouting(); }
 
   /* ---------- 慣性スクロール（指を離したあとスッと滑って止まる） ---------- */
   const FRICTION = 0.96;    // 1フレームごとの減速率（小さいほど早く止まる）
