@@ -287,7 +287,8 @@ PN.editor = (function () {
     if (t !== 'image') selImg = null;
     if (t !== 'lasso') clearLasso();
     if (isPenLike(t)) refreshPenPanels();   // ペンとマーカーで色・太さの並びを入れ替える
-    pageViews.forEach(pv => { renderTexts(pv); renderImages(pv); });
+    // 目かくしの×は「目かくし」のときだけ出す。道具を変えたら描き直して消す
+    pageViews.forEach(pv => { renderMasks(pv); renderTexts(pv); renderImages(pv); });
     updateRouting();
   }
 
