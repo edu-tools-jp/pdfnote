@@ -1927,7 +1927,41 @@ PN.editor = (function () {
   }
 
   /* ---------- ズーム ---------- */
-  function setZoom(z) { stopGlide(); releaseViewHold(); zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)); relayoutAll(); }
+  /* 拡大・縮小しても、いま見ているところが動かないようにする。
+     画面の中央にあるページと、その中のどこを見ているかを覚えておき、
+     大きさを変えたあとで同じ点を画面の中央へ戻す。
+     ページの間のすき間は拡大しても 16px のままなので、
+     全体からの割合ではなく「ページの中の割合」で覚える。 */
+  function viewAnchor() {
+    if (!pageViews.length) return null;
+    const sr = elScroller.getBoundingClientRect();
+    const cx = sr.left + sr.width / 2, cy = sr.top + sr.height / 2;
+    let pv = null, bestD = Infinity;
+    pageViews.forEach(v => {
+      const r = v.el.getBoundingClientRect();
+      const d = (cy < r.top) ? r.top - cy : (cy > r.bottom ? cy - r.bottom : 0);
+      if (d < bestD) { bestD = d; pv = v; }
+    });
+    if (!pv) return null;
+    const r = pv.el.getBoundingClientRect();
+    return { pv, cx, cy,
+      fx: r.width ? (cx - r.left) / r.width : 0.5,
+      fy: r.height ? (cy - r.top) / r.height : 0.5 };
+  }
+  function applyViewAnchor(a) {
+    if (!a) return;
+    const r = a.pv.el.getBoundingClientRect();
+    elScroller.scrollLeft += (r.left + a.fx * r.width) - a.cx;
+    elScroller.scrollTop += (r.top + a.fy * r.height) - a.cy;
+    // 位置を直したあとの見え方に合わせて、描画とページ番号を取り直す
+    renderVisible(); updateCurrent();
+  }
+  function setZoom(z) {
+    stopGlide(); releaseViewHold();
+    const nz = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+    const a = (nz !== zoom) ? viewAnchor() : null;
+    zoom = nz; relayoutAll(); applyViewAnchor(a);
+  }
 
   /* ---------- ページ移動・現在ページ ---------- */
   function goPage(i) { if (!nb || i < 0 || i >= nb.pages.length || !pageViews[i]) return; stopGlide(); pageViews[i].el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
