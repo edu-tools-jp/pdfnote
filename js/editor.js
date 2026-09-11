@@ -34,6 +34,11 @@ PN.editor = (function () {
   const MASK_COLORS = DEFAULT_MASK_COLORS.slice();
   const MASK_COLORS_KEY = 'pdfnote.maskColors';
   const ZOOM_MIN = 0.25, ZOOM_MAX = 6;
+  const ZOOM_OUT_STEP = 0.8;                 // −ボタン1回ぶん
+  /* ノートを開いたときの大きさ。
+     1 は「ページの幅が画面いっぱい」で、授業で使うには大きすぎるため、
+     −ボタンを3回押したところ（0.8×0.8×0.8 ＝ 約0.51）から始める */
+  const DEFAULT_ZOOM = ZOOM_OUT_STEP * ZOOM_OUT_STEP * ZOOM_OUT_STEP;
   const PAD = 20;
 
   /* キャンバス（テクスチャ）の安全な最大寸法。教室の内蔵GPUは上限4096pxのことが多く、
@@ -58,7 +63,7 @@ PN.editor = (function () {
   let mkColor = MK_COLORS[0], mkWidthIdx = 1;
   const isFreehand = (t) => (t === 'pen' || t === 'marker');   // なぞって描く道具
   const isPenLike = (t) => (t === 'pen' || t === 'marker' || t === 'line');
-  let zoom = 1, baseContentW = 1;
+  let zoom = DEFAULT_ZOOM, baseContentW = 1;
   const dprv = () => window.devicePixelRatio || 1;
 
   let undoStack = [], redoStack = [];   // {idx, before}
@@ -257,7 +262,7 @@ PN.editor = (function () {
     $('#ed-undo').addEventListener('click', undo);
     $('#ed-redo').addEventListener('click', redo);
     $('#ed-zoom-in').addEventListener('click', () => setZoom(zoom * 1.25));
-    $('#ed-zoom-out').addEventListener('click', () => setZoom(zoom * 0.8));
+    $('#ed-zoom-out').addEventListener('click', () => setZoom(zoom * ZOOM_OUT_STEP));
     $('#ed-zoom-fit').addEventListener('click', () => setZoom(1));
     $('#ed-reveal-all').addEventListener('click', () => setAllMasks(true));
     $('#ed-hide-all').addEventListener('click', () => setAllMasks(false));
@@ -305,7 +310,7 @@ PN.editor = (function () {
 
   /* ---------- ノートを開く / 閉じる ---------- */
   async function open(notebook) {
-    nb = notebook; currentIdx = 0; zoom = 1;
+    nb = notebook; currentIdx = 0; zoom = DEFAULT_ZOOM;
     undoStack = []; redoStack = []; dirty = false; structureDirty = false; viewDirty = false;
     pdfCache = {}; imgCache = {}; imgUrls.forEach(u => URL.revokeObjectURL(u)); imgUrls = [];
     // 全画面状態はリセット（レイアウトのみ）
