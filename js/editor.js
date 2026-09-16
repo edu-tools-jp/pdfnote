@@ -88,6 +88,21 @@ PN.editor = (function () {
   const penOnly = () => !fingerDraw;
   let scrollRAF = null;
 
+  /* 手のひら対策（パームリジェクション）。
+     タッチペンで書くとき、手の側面が画面に触れて
+     ノートが大きくスクロールしてしまうのを防ぐ。
+     手のひらかどうかは、次の手がかりで見分ける。
+       ・ペンが触れている、またはすぐ近くにある（アクティブペンは
+         近づいた時点で pointermove が 'pen' で届く）
+       ・接地面が指先よりずっと大きい（機種によっては届かないので補助）
+     どうしても合わない機種のために、設定で切れるようにしてある。 */
+  const PALM_KEY = 'pdfnote.palmReject';
+  let palmReject = true;
+  const PEN_GUARD_MS = 700;      // ペンを検知したあと、指を受け付けない時間
+  const PALM_UNDO_MS = 1200;     // 指が動かしたスクロールを取り消せる時間
+  const PALM_SIZE = 60;          // 接地面がこれより大きければ手のひら（CSSピクセル）
+  let penDown = 0, lastPenAt = 0, lastPalmAt = 0;
+
   /* DOM */
   let ed, elStage, elScroller, elPages, elNoPages, elExit;
 
@@ -270,6 +285,7 @@ PN.editor = (function () {
     $('#ed-page-list').addEventListener('click', () => PN.pages.open());
     $('#ed-image').addEventListener('click', (e) => imageMenu(e.currentTarget));
     try { fingerDraw = localStorage.getItem(FINGER_DRAW_KEY) === '1'; } catch (e) {}
+    try { palmReject = localStorage.getItem(PALM_KEY) !== '0'; } catch (e) {}
     try { snapShapes = localStorage.getItem(SHAPE_KEY) !== '0'; } catch (e) {}
     buildLassoControls();
     $('#ed-settings').addEventListener('click', (e) => settingsMenu(e.currentTarget));
@@ -1763,6 +1779,7 @@ PN.editor = (function () {
     if (!nb || suppressDraw) return;
     stopGlide();                       // 描き始めたら慣性は止める
     if (gesture) return;                 // 既に1本で描画中：他の指（手のひら等）は無視
+    if (e.pointerType === 'touch' && isPalmLike(e)) { lastPalmAt = nowMs(); return; }
     // ペンだけで書く設定のときは、指・手のひらでは何もしない（1本指はスクロールになる）
     if (penOnly() && e.pointerType === 'touch') {
       // 投げ縄で選んでいるとき、何もない所を指でタップしたら選択を外す
@@ -1865,6 +1882,7 @@ PN.editor = (function () {
   let maskGesture = null;
   function onMaskDown(e, pv) {
     if (tool !== 'mask' || !nb || suppressDraw || immersive) return;
+    if (e.pointerType === 'touch' && isPalmLike(e)) { lastPalmAt = nowMs(); return; }
     if (penOnly() && e.pointerType === 'touch') return;
     if (e.target.classList.contains('mask-del')) return;
     pv.mask.setPointerCapture(e.pointerId);
@@ -1894,6 +1912,8 @@ PN.editor = (function () {
   }
   function onMaskClick(e, pv) {
     if (suppressDraw || Date.now() - lastPinchEnd < 350) return;
+    // 手のひらが触れた直後のクリックは無視（授業中に答えが開いてしまわないように）
+    if (palmReject && (penDown > 0 || nowMs() - lastPalmAt < 400)) return;
     const m = e.target.closest('.mask');
     if (tool === 'reveal' && m) toggleReveal(pv, +m.dataset.idx);
   }
@@ -2088,6 +2108,12 @@ PN.editor = (function () {
   const isViewTool = () => (tool === 'reveal' || penOnly());
 
   function bindTouch() {
+    // ペンの気配（触れている・近づいている）を先に捕まえる。
+    // document の捕捉フェーズなので、下の onTouchDown より必ず先に走る
+    document.addEventListener('pointerdown', onPenSignal, true);
+    document.addEventListener('pointermove', onPenSignal, true);
+    document.addEventListener('pointerup', onPenSignal, true);
+    document.addEventListener('pointercancel', onPenSignal, true);
     elPages.addEventListener('pointerdown', onTouchDown, true);
     document.addEventListener('pointermove', onTouchMove);
     document.addEventListener('pointerup', onTouchUp);
@@ -2095,8 +2121,39 @@ PN.editor = (function () {
     document.addEventListener('pointerup', onTextLayerUp);
     document.addEventListener('pointercancel', () => { pendingText = null; });
   }
+  /* ペンが触れた／近づいた。時刻を覚えておく */
+  function onPenSignal(e) {
+    if (e.pointerType !== 'pen') return;
+    lastPenAt = nowMs();
+    if (e.type === 'pointerdown') { penDown++; onPenLanded(); }
+    else if (e.type === 'pointerup' || e.type === 'pointercancel') penDown = Math.max(0, penDown - 1);
+  }
+
+  /* ペンが触れた時点で指がノートを動かしていて、その指がまだ画面に
+     残っているなら、それは手のひらだった（書きながら指で押さえ続ける人はいない）。
+     動いてしまったぶんを元に戻す。 */
+  function onPenLanded() {
+    if (!palmReject) return;
+    stopGlide();
+    if (!one || !ptrs.has(one.id) || nowMs() - one.startT > PALM_UNDO_MS) return;
+    elScroller.scrollLeft = one.startSL;
+    elScroller.scrollTop = one.startST;
+    lastPalmAt = nowMs();
+    one = null;
+  }
+
+  /* 手のひららしい接触か */
+  function isPalmLike(e) {
+    if (!palmReject) return false;
+    if (penDown > 0) return true;                        // ペンが触れている
+    if (nowMs() - lastPenAt < PEN_GUARD_MS) return true; // ペンがすぐそこにある
+    const sz = Math.max(e.width || 0, e.height || 0);
+    return sz > 1 && sz > PALM_SIZE;                     // 接地面が指先より大きい
+  }
+
   function onTouchDown(e) {
     if (e.pointerType !== 'touch') return;
+    if (isPalmLike(e)) { lastPalmAt = nowMs(); return; }   // 手のひらは無かったことにする
     stopGlide();                       // 動いている最中に触れたら、その場で止める
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ptrs.size >= 2) { one = null; pendingText = null; if (!two) startTwo(); return; }
@@ -2105,7 +2162,8 @@ PN.editor = (function () {
        画像や投げ縄で選んでいる間も同じく止めておき、
        何もない所を1回タップすれば選択が外れて、また指でスクロールできる。 */
     if (ptrs.size === 1 && isViewTool() && !selImg && !lassoSel && !onGrabbable(e)) {
-      one = { id: e.pointerId, lastX: e.clientX, lastY: e.clientY, moved: 0, vx: 0, vy: 0, lastT: nowMs() };
+      one = { id: e.pointerId, lastX: e.clientX, lastY: e.clientY, moved: 0, vx: 0, vy: 0, lastT: nowMs(),
+              startT: nowMs(), startSL: elScroller.scrollLeft, startST: elScroller.scrollTop };
     }
   }
   function onTouchMove(e) {
@@ -2271,7 +2329,10 @@ PN.editor = (function () {
         : { label: '指だけで操作できるようにする（スクロールは2本指）', onClick: () => setFingerDraw(true) },
       snapShapes
         ? { icon: 'check', label: '押さえたままで図形をきれいにする', onClick: () => setSnapShapes(false) }
-        : { label: '押さえたままで図形をきれいにする', onClick: () => setSnapShapes(true) }
+        : { label: '押さえたままで図形をきれいにする', onClick: () => setSnapShapes(true) },
+      palmReject
+        ? { icon: 'check', label: '手のひらが触れても反応しないようにする', onClick: () => setPalmReject(false) }
+        : { label: '手のひらが触れても反応しないようにする', onClick: () => setPalmReject(true) }
     ]);
   }
   function setFingerDraw(on) {
@@ -2279,6 +2340,12 @@ PN.editor = (function () {
     try { localStorage.setItem(FINGER_DRAW_KEY, on ? '1' : '0'); } catch (e) {}
     PN.ui.toast(on ? '指だけで操作できるようにしました。画面のスクロールは2本指で行います。'
                    : 'タッチペンで操作します。1本指では画面がスクロールします。', 6000);
+  }
+  function setPalmReject(on) {
+    palmReject = !!on;
+    try { localStorage.setItem(PALM_KEY, on ? '1' : '0'); } catch (e) {}
+    PN.ui.toast(on ? 'ペンで書くときに手のひらが画面に触れても、ノートが動かないようにします。'
+                   : '手のひらの判定をやめます。画面に触れたものは、すべて指として扱います。', 6000);
   }
   function setSnapShapes(on) {
     snapShapes = !!on;

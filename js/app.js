@@ -7,7 +7,9 @@ PN.app = (function () {
 
   // ★ 公開のたびに、この値と service-worker.js の VERSION を「同じ値」に変えること。
   //    食い違うと「表示中のファイルが古いようです」の案内が出る（それが食い違い検知のしくみ）。
-  const APP_VERSION = '20260826t';
+  //    値は「その日の日付＋枝番」＝ 20260916a（同じ日に2回目なら 20260916b）。
+  //    ★前回の日付を使い回さないこと。この日付をそのまま「いつの更新か」として見せている。
+  const APP_VERSION = '20260916a';
 
   /* 更新内容は release-notes.json に置く（サーバ上の最新をそのつど読む）。
      公開のたびに、いちばん上へ今回の版の項目を足すこと。 */
@@ -115,17 +117,26 @@ PN.app = (function () {
       lead: (notes && notes.length)
         ? '更新すると、次のように変わります。画面が再読み込みされますが、書き込みは保存済みです。'
         : '更新内容を読み込めませんでした（ネット接続を確認してください）。更新すると画面が再読み込みされますが、書き込みは保存済みです。',
-      notes: notes || [],
+      // 先生には版番号より「いつの更新か」が要るので、日付にして見せる
+      notes: (notes || []).map(n => Object.assign({}, n,
+        { version: verDate(n.version) ? verDate(n.version) + 'の更新' : n.version })),
       ok: '更新する', cancel: 'あとで'
     });
     if (ok) worker.postMessage('skipWaiting');   // → controllerchange で自動リロード
   }
 
+  /* 版番号は「更新日＋枝番」。20260916a → 2026年9月16日 */
+  function verDate(v) {
+    const m = /^(\d{4})(\d{2})(\d{2})/.exec(String(v || ''));
+    return m ? (+m[1] + '年' + (+m[2]) + '月' + (+m[3]) + '日') : '';
+  }
+
   /* 画面すみの版番号は APP_VERSION から入れる（手書きの重複を作らない） */
   function showBuildStamp() {
+    const d = verDate(APP_VERSION);
     document.querySelectorAll('.build-stamp').forEach(el => {
       el.textContent = APP_VERSION;
-      el.title = 'アプリのバージョン ' + APP_VERSION;
+      el.title = 'アプリのバージョン ' + APP_VERSION + (d ? '（' + d + 'の更新）' : '');
     });
   }
 
