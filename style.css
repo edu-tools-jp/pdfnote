@@ -39,8 +39,10 @@ body.has-tabs:has(#screen-editor.immersive:not([hidden])) #screen-editor{top:0;}
 body.has-tabs .ed-title, body.has-tabs #ed-back{display:none;}
 
 .tab-list{
+  position:relative;   /* タブの offsetLeft をこの帯の中の位置にする（並べ替えで使う） */
   display:flex; align-items:flex-end; gap:4px; min-width:0; flex:1 1 auto; height:100%;
   overflow-x:auto; overflow-y:hidden; scrollbar-width:none;
+  touch-action:none;   /* 横スクロールと長押しの並べ替えは、こちらで受け持つ */
 }
 .tab-list::-webkit-scrollbar{display:none;}
 .tab{
@@ -49,7 +51,7 @@ body.has-tabs .ed-title, body.has-tabs #ed-back{display:none;}
   flex:0 1 220px; min-width:112px; max-width:220px;
   border:1px solid transparent; border-bottom:none; border-radius:10px 10px 0 0;
   background:transparent; color:var(--muted); font:inherit; font-size:14px;
-  cursor:pointer; user-select:none; -webkit-user-select:none; touch-action:pan-x;
+  cursor:pointer; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; touch-action:none;
 }
 .tab:hover{background:#ffffff0d; color:var(--ink);}
 .tab:focus-visible{outline:2px solid var(--accent); outline-offset:-2px;}
@@ -61,6 +63,13 @@ body.has-tabs .ed-title, body.has-tabs #ed-back{display:none;}
 .tab:not(.active):not(.tab-home) + .tab:not(.active)::before{
   content:""; position:absolute; left:-3px; top:9px; bottom:9px; width:1px; background:var(--line);
 }
+/* 並べ替え中：持ち上げたタブを浮かせ、区切り線は消す */
+.tab.dragging{
+  z-index:3; background:var(--panel-2); color:var(--ink); border-color:var(--accent);
+  box-shadow:0 8px 22px #000b; cursor:grabbing;
+}
+.tab-list.reordering .tab::before{display:none;}
+.tab-list.reordering{cursor:grabbing;}
 .tab-ic{width:16px; height:16px; flex:none;}
 .tab-title{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
 .tab-close{

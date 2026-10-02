@@ -8,6 +8,8 @@
  *  ・そのかわり、各タブで見ていた場所（倍率・スクロール位置）は覚えておき、
  *    戻ったときに同じ場所をそのまま見せる。
  *  ・開いているタブの並びは保存しておき、次に起動したときも残っている。
+ *  ・タブはドラッグで並べ替えられる。マウスはそのまま動かせば、
+ *    指とペンは長押しで持ち上げてから動かす（すぐ動かすと帯の横スクロール）。
  */
 window.PN = window.PN || {};
 
@@ -29,6 +31,18 @@ PN.tabs = (function () {
     } catch (e) { /* 読めなければタブなしで始める */ }
     home.addEventListener('click', () => goHome());
     list.addEventListener('click', onListClick);
+    // 並べ替え（マウスはドラッグ、指・ペンは長押しで持ち上げる）
+    list.addEventListener('pointerdown', onDown);
+    list.addEventListener('pointermove', onMove);
+    list.addEventListener('pointerup', onUp);
+    list.addEventListener('pointercancel', onCancel);
+    // 長押しで右クリックのメニューが出ないように（Windows のタッチ・ペン）
+    list.addEventListener('contextmenu', (e) => e.preventDefault());
+    // マウスのホイールで、隠れているタブまで横にスクロールできるように
+    list.addEventListener('wheel', (e) => {
+      if (list.scrollWidth <= list.clientWidth || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      list.scrollLeft += e.deltaY; e.preventDefault();
+    }, { passive: false });
     // パソコンのマウスなら、ホイールを押してもタブを閉じられる
     list.addEventListener('auxclick', (e) => {
       const t = e.button === 1 && e.target.closest('.tab');
@@ -64,6 +78,7 @@ PN.tabs = (function () {
 
   function render() {
     if (!bar) return;
+    if (drag) { clearTimeout(drag.timer); drag = null; list.classList.remove('reordering'); }
     // タブが1つも無いとき、最初の画面（保存先を選ぶ）では出さない
     const onStart = !$('#screen-start').hidden;
     const show = ids.length > 0 && !onStart && indexReady();
@@ -95,8 +110,104 @@ PN.tabs = (function () {
 
   function onListClick(e) {
     const t = e.target.closest('.tab'); if (!t) return;
+    if (performance.now() < swallowUntil) return;   // 並べ替え・スクロールの直後
     if (e.target.closest('.tab-close')) { e.stopPropagation(); closeTab(t.dataset.id); return; }
     switchTo(t.dataset.id);
+  }
+
+  /* ---------- 並べ替え ----------
+     マウス … 押したまま 6px 動かすと持ち上がる
+     指・ペン … 0.38 秒押さえると持ち上がる。その前に動かしたら帯の横スクロール
+     持ち上げたタブは指についてきて、となりのタブの真ん中を越えたら入れ替わる。 */
+  const LONG_PRESS_MS = 380;
+  const SLOP = 10;          // 指・ペンが、これより動いたらスクロールとみなす
+  const MOUSE_SLOP = 6;     // マウスは、これだけ動かしたらドラッグ開始
+  let drag = null;
+  let swallowUntil = 0;     // この時刻までの click は無視する
+  const order = () => [...list.querySelectorAll('.tab')].map(t => t.dataset.id);
+
+  function onDown(e) {
+    if (busy || drag || e.button > 0) return;
+    const t = e.target.closest('.tab');
+    if (!t || e.target.closest('.tab-close')) return;   // × は click で閉じる
+    const mouse = e.pointerType === 'mouse';
+    drag = { id: e.pointerId, el: t, mouse, x0: e.clientX, y0: e.clientY, lastX: e.clientX, mode: 'press', timer: null };
+    if (!mouse) drag.timer = setTimeout(() => { if (drag && drag.mode === 'press') lift(); }, LONG_PRESS_MS);
+    try { t.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+
+  function onMove(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (drag.mode === 'press') {
+      const far = Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0);
+      if (drag.mouse) { if (far <= MOUSE_SLOP) return; lift(); }
+      else if (far > SLOP) { clearTimeout(drag.timer); drag.mode = 'scroll'; }
+      else return;
+    }
+    if (drag.mode === 'scroll') {
+      list.scrollLeft -= e.clientX - drag.lastX;
+      drag.lastX = e.clientX;
+      return;
+    }
+    drag.lastX = e.clientX;
+    follow(e.clientX);
+  }
+
+  /* タブを持ち上げる */
+  function lift() {
+    clearTimeout(drag.timer);
+    drag.mode = 'drag';
+    drag.grab = drag.x0 - drag.el.getBoundingClientRect().left;   // タブのどこをつかんだか
+    drag.before = order();
+    drag.el.classList.add('dragging');
+    list.classList.add('reordering');
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) {}
+    follow(drag.lastX);
+  }
+
+  /* 持ち上げたタブを指に合わせて動かし、通り過ぎたタブと入れ替える */
+  function follow(x) {
+    const el = drag.el, lr = list.getBoundingClientRect();
+    // 帯の端まで持っていくと、隠れているタブのほうへスクロール
+    if (x < lr.left + 32) list.scrollLeft -= 12;
+    else if (x > lr.right - 32) list.scrollLeft += 12;
+    const want = x - drag.grab;                                         // 指についていく位置
+    const left = Math.max(lr.left, Math.min(lr.right - el.offsetWidth, want));   // 見た目は帯の中に収める
+    // 入れ替えの判定は、帯の端で止める前の位置で行う
+    // （止めた位置だと、同じ幅のタブでは端のタブの真ん中とちょうど重なって越えられない）
+    const center = want + el.offsetWidth / 2;
+    const base = lr.left - list.scrollLeft;   // 帯の中での位置 → 画面上の位置
+    let before = null;
+    for (const t of list.querySelectorAll('.tab')) {
+      if (t === el) continue;
+      if (center < base + t.offsetLeft + t.offsetWidth / 2) { before = t; break; }
+    }
+    if (before !== el.nextElementSibling) list.insertBefore(el, before);
+    el.style.transform = 'translateX(' + (left - (base + el.offsetLeft)) + 'px)';
+  }
+
+  function drop(d) {
+    d.el.classList.remove('dragging');
+    d.el.style.transform = '';
+    list.classList.remove('reordering');
+    const now = order();
+    if (now.join('\n') !== d.before.join('\n')) { ids = now; persist(); }
+    render();
+  }
+
+  function onUp(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag; drag = null;
+    clearTimeout(d.timer);
+    if (d.mode === 'drag') { swallowUntil = performance.now() + 400; drop(d); }
+    else if (d.mode === 'scroll') swallowUntil = performance.now() + 400;
+    // 'press' のまま離した＝ふつうのタップ。切り替えは click で行う
+  }
+  function onCancel(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag; drag = null;
+    clearTimeout(d.timer);
+    if (d.mode === 'drag') drop(d);
   }
 
   /* 切り替えに時間がかかったときだけ「読み込み中」を出す（すぐ終わればチラつかせない） */
