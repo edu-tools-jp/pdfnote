@@ -224,7 +224,19 @@ code{background:#0003; padding:2px 6px; border-radius:6px;}
 .card{
   background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
   overflow:hidden; display:flex; flex-direction:column;
+  /* 長押しで並べ替えるので、文字が選ばれたりメニューが出たりしないように */
+  user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;
+  /* 指で縦になぞれば、ふつうに一覧がスクロールする。横の動きはブラウザに渡さない
+     （渡すと、持ち上げたカードを横に動かした途中でブラウザに取られて止まる） */
+  touch-action:pan-y;
 }
+/* 並べ替え：持ち上げたカードの入る場所と、指についてくる写し */
+.card.sort-placeholder{opacity:.35; outline:2px dashed var(--accent); outline-offset:-2px;}
+.card-ghost{
+  position:fixed; left:0; top:0; z-index:45; margin:0; pointer-events:none;
+  border-color:var(--accent); box-shadow:0 16px 36px #000c; transform-origin:center;
+}
+body.sorting, body.sorting *{cursor:grabbing !important;}
 .card-thumb{
   aspect-ratio:4/3; background:#11141c center/contain no-repeat;
   display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px;

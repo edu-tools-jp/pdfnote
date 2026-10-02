@@ -13,6 +13,7 @@ PN.library = (function () {
     $('#lib-new-folder').addEventListener('click', newFolder);
     $('#lib-change-folder').addEventListener('click', changeStorageFolder);
     $('#filter-search').addEventListener('input', (e) => { search = e.target.value.trim(); renderList(); });
+    bindSort($('#lib-list'));
   }
   function show() { render(); }
 
@@ -87,6 +88,12 @@ PN.library = (function () {
 
   /* ---- 一覧（現在地のサブフォルダ＋ノートを表示） ---- */
   function renderList() {
+    // 並べ替えの途中で描き直すことになったら、持ち上げたカードは元に戻す
+    if (sort) {
+      const s = sort; sort = null; clearTimeout(s.timer); cancelAnimationFrame(s.raf);
+      if (s.ghost) s.ghost.remove();
+      document.body.classList.remove('sorting');
+    }
     thumbUrls.forEach(u => URL.revokeObjectURL(u)); thumbUrls = [];
     const list = $('#lib-list'); list.innerHTML = '';
     const idx = PN.storage.getIndex();
@@ -101,10 +108,10 @@ PN.library = (function () {
 
     // 現在地（currentFolder）の直下にあるサブフォルダ
     let subfolders = folders.filter(f => (f.parent || null) === currentFolder).filter(matchF);
-    subfolders.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    subfolders.sort(byOrder((a, b) => (a.name || '').localeCompare(b.name || '')));
     // 現在地の直下にあるノート
     let directNotes = allNotes.filter(n => (n.folder || null) === currentFolder).filter(matchN);
-    directNotes.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    directNotes.sort(byOrder((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
 
     if (subfolders.length) {
       const grid = document.createElement('div'); grid.className = 'cards';
@@ -131,6 +138,18 @@ PN.library = (function () {
     }
   }
 
+  /* 並べ替えた順（order）で並べる。order を持たないもの＝まだ並べ替えていない段のもの、
+     あとから足したもの・移してきたものは、先頭にこれまでの順（fallback）で並べる。
+     一度も並べ替えていない段は、これまでとまったく同じ並びになる。 */
+  function byOrder(fallback) {
+    return (a, b) => {
+      const ah = typeof a.order === 'number', bh = typeof b.order === 'number';
+      if (ah && bh) return a.order - b.order;
+      if (!ah && !bh) return fallback(a, b);
+      return ah ? 1 : -1;
+    };
+  }
+
   function folderCard(f) {
     const idx = PN.storage.getIndex();
     const noteCount = idx.notebooks.filter(n => n.folder === f.id).length;
@@ -139,7 +158,7 @@ PN.library = (function () {
       subCount ? (subCount + ' フォルダ') : '',
       noteCount + ' ノート'
     ].filter(Boolean).join(' ・ ');
-    const el = document.createElement('div'); el.className = 'card folder-card';
+    const el = document.createElement('div'); el.className = 'card folder-card'; el.dataset.id = f.id;
     const fc = folderColor(f.color);
     el.style.setProperty('--fc', fc.glyph);
     el.innerHTML = `
@@ -158,7 +177,7 @@ PN.library = (function () {
   }
 
   function noteCard(n) {
-    const el = document.createElement('div'); el.className = 'card';
+    const el = document.createElement('div'); el.className = 'card'; el.dataset.id = n.id;
     const d = n.updatedAt ? new Date(n.updatedAt) : null;
     const dStr = d ? `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}` : '';
     const fpath = folderPath(n.folder);
@@ -183,6 +202,151 @@ PN.library = (function () {
       });
     }
     return el;
+  }
+
+  /* ---- 並べ替え（ドラッグ／長押し） ----
+     マウス … カードを押したまま 6px 動かすと持ち上がる
+     指・ペン … 0.4 秒押さえると持ち上がる。その前に動かせば、ふつうの縦スクロール
+     持ち上げたカードは指についてきて、重なったカードの前か後ろに入る。
+     フォルダはフォルダの中で、ノートはノートの中で並べ替える。
+     画面の上下の端まで持っていくと、一覧が自動でスクロールする。 */
+  const SORT_LONG_MS = 400;
+  const SORT_SLOP = 10;       // 指・ペンがこれより動いたら、スクロールとみなす
+  const SORT_MOUSE_SLOP = 6;  // マウスはこれだけ動かしたら持ち上げる
+  let sort = null;
+  let sortSwallowUntil = 0;   // 並べ替え直後のクリックは無視する
+
+  function bindSort(list) {
+    list.addEventListener('pointerdown', sortDown);
+    list.addEventListener('pointermove', sortMove);
+    list.addEventListener('pointerup', sortUp);
+    list.addEventListener('pointercancel', sortCancel);
+    // 持ち上げたあとは、指を動かしても一覧をスクロールさせない
+    list.addEventListener('touchmove', (e) => { if (sort && sort.mode === 'drag') e.preventDefault(); }, { passive: false });
+    // 長押しで右クリックのメニューが出ないように（Windows のタッチ・ペン）
+    list.addEventListener('contextmenu', (e) => { if (e.target.closest('.card')) e.preventDefault(); });
+    // 並べ替えた直後に、指を離した所のボタンが押されないように
+    list.addEventListener('click', (e) => {
+      if (performance.now() < sortSwallowUntil) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+  }
+
+  function sortDown(e) {
+    if (sort || e.button > 0 || search) return;             // 検索中は並べ替えない
+    const card = e.target.closest('.card');
+    if (!card || !card.dataset.id || e.target.closest('button')) return;   // ボタンはそのまま押せる
+    const grid = card.parentElement;
+    if (grid.querySelectorAll('.card').length < 2) return;
+    const mouse = e.pointerType === 'mouse';
+    sort = { id: e.pointerId, card, grid, mouse, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY,
+             mode: 'press', timer: null, kind: card.classList.contains('folder-card') ? 'folder' : 'note' };
+    if (!mouse) sort.timer = setTimeout(() => { if (sort && sort.mode === 'press') sortLift(); }, SORT_LONG_MS);
+    try { card.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+
+  function sortMove(e) {
+    if (!sort || e.pointerId !== sort.id) return;
+    sort.x = e.clientX; sort.y = e.clientY;
+    if (sort.mode === 'press') {
+      const far = Math.hypot(e.clientX - sort.x0, e.clientY - sort.y0);
+      if (sort.mouse) { if (far > SORT_MOUSE_SLOP) sortLift(); }
+      else if (far > SORT_SLOP) { clearTimeout(sort.timer); sort = null; }   // スクロールしたかった
+      return;
+    }
+    e.preventDefault();
+    sortFollow();
+  }
+
+  /* カードを持ち上げる：本物はその場に「入る場所」として薄く残し、
+     そっくりの写しを指の下に浮かせて動かす */
+  function sortLift() {
+    clearTimeout(sort.timer);
+    sort.mode = 'drag';
+    const r = sort.card.getBoundingClientRect();
+    sort.gx = sort.x0 - r.left; sort.gy = sort.y0 - r.top;   // カードのどこをつかんだか
+    sort.before = sortOrder(sort.grid);
+    const g = sort.card.cloneNode(true);
+    g.classList.add('card-ghost');
+    g.removeAttribute('data-id');
+    g.style.width = r.width + 'px'; g.style.height = r.height + 'px';
+    document.body.appendChild(g);
+    sort.ghost = g;
+    sort.card.classList.add('sort-placeholder');
+    document.body.classList.add('sorting');
+    try { if (navigator.vibrate) navigator.vibrate(12); } catch (err) {}
+    sortFollow();
+    sort.raf = requestAnimationFrame(sortAutoScroll);
+  }
+
+  const sortOrder = (grid) => [...grid.querySelectorAll('.card')].map(c => c.dataset.id);
+
+  function sortFollow() {
+    const s = sort;
+    s.ghost.style.transform = 'translate(' + (s.x - s.gx) + 'px,' + (s.y - s.gy) + 'px) scale(1.04)';
+    // 指の下にあるカードを探し、その左半分なら前へ、右半分なら後ろへ入れる
+    const cards = [...s.grid.querySelectorAll('.card')];
+    for (const c of cards) {
+      if (c === s.card) continue;
+      const r = c.getBoundingClientRect();
+      if (s.x < r.left - 8 || s.x > r.right + 8 || s.y < r.top - 8 || s.y > r.bottom + 8) continue;
+      const after = s.x > r.left + r.width / 2;
+      const ref = after ? c.nextElementSibling : c;
+      if (ref !== s.card && s.card.nextElementSibling !== ref) s.grid.insertBefore(s.card, ref);
+      return;
+    }
+    // どのカードにも重なっていない：いちばん後ろのカードより先なら最後へ、最初より前なら先頭へ。
+    // ただし、この並び（フォルダならフォルダ、ノートならノート）から大きく外れた所では何もしない
+    // （ノートをフォルダの上へ持っていっただけで、ノートの先頭に入らないように）
+    const gr = s.grid.getBoundingClientRect();
+    if (s.x < gr.left - 40 || s.x > gr.right + 40 || s.y < gr.top - 60 || s.y > gr.bottom + 60) return;
+    const others = cards.filter(c => c !== s.card);
+    if (!others.length) return;
+    const last = others[others.length - 1].getBoundingClientRect();
+    const first = others[0].getBoundingClientRect();
+    if (s.y > last.bottom || (s.y > last.top && s.x > last.right)) {
+      if (s.grid.lastElementChild !== s.card) s.grid.appendChild(s.card);
+    } else if (s.y < first.top || (s.y < first.bottom && s.x < first.left)) {
+      if (s.grid.firstElementChild !== s.card) s.grid.insertBefore(s.card, s.grid.firstElementChild);
+    }
+  }
+
+  /* 画面の上下の端に寄せると、一覧をスクロールする */
+  function sortAutoScroll() {
+    if (!sort || sort.mode !== 'drag') return;
+    const list = $('#lib-list'), lr = list.getBoundingClientRect(), EDGE = 70;
+    let dy = 0;
+    if (sort.y < lr.top + EDGE) dy = -Math.ceil((lr.top + EDGE - sort.y) / EDGE * 16);
+    else if (sort.y > lr.bottom - EDGE) dy = Math.ceil((sort.y - (lr.bottom - EDGE)) / EDGE * 16);
+    if (dy) {
+      const before = list.scrollTop;
+      list.scrollTop += dy;
+      if (list.scrollTop !== before) sortFollow();
+    }
+    sort.raf = requestAnimationFrame(sortAutoScroll);
+  }
+
+  async function sortDrop(s) {
+    cancelAnimationFrame(s.raf);
+    if (s.ghost) s.ghost.remove();
+    s.card.classList.remove('sort-placeholder');
+    document.body.classList.remove('sorting');
+    const now = sortOrder(s.grid);
+    if (now.join('\n') === s.before.join('\n')) return;
+    try { await PN.storage.setOrder(s.kind, now); }
+    catch (e) { console.error(e); PN.ui.toast('並び順を保存できませんでした'); render(); }
+  }
+
+  function sortUp(e) {
+    if (!sort || e.pointerId !== sort.id) return;
+    const s = sort; sort = null;
+    clearTimeout(s.timer);
+    if (s.mode === 'drag') { sortSwallowUntil = performance.now() + 400; sortDrop(s); }
+  }
+  function sortCancel(e) {
+    if (!sort || e.pointerId !== sort.id) return;
+    const s = sort; sort = null;
+    clearTimeout(s.timer);              // 持ち上げる前なら、一覧のスクロールが始まっただけ
+    if (s.mode === 'drag') sortDrop(s);
   }
 
   /* ---- メニュー ---- */
