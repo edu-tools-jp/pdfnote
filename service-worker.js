@@ -10,7 +10,7 @@
  *      先生が画面すみの表示や更新のお知らせで日付を読み取ります。
  *    VERSION が変わらないと、ブラウザは「更新なし」と判断します。
  */
-const VERSION = '20260916a';                 // ← 公開のたびに変更する（js/app.js の APP_VERSION と同じ値に）
+const VERSION = '20261002a';                 // ← 公開のたびに変更する（js/app.js の APP_VERSION と同じ値に）
 const CACHE = 'pdfnote-' + VERSION;
 
 // キャッシュするファイル（SW自身の場所からの相対パス）
@@ -28,6 +28,7 @@ const ASSETS = [
   './js/library.js',
   './js/editor.js',
   './js/pages.js',
+  './js/tabs.js',
   './js/app.js',
   './vendor/pdfjs/pdf.min.js',
   './vendor/pdfjs/pdf.worker.min.js',

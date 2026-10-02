@@ -70,7 +70,15 @@
   <symbol id="i-align-l" viewBox="0 0 24 24"><path d="M4 6.5h16"/><path d="M4 12h10"/><path d="M4 17.5h13"/></symbol>
   <symbol id="i-align-c" viewBox="0 0 24 24"><path d="M4 6.5h16"/><path d="M7 12h10"/><path d="M5.5 17.5h13"/></symbol>
   <symbol id="i-align-r" viewBox="0 0 24 24"><path d="M4 6.5h16"/><path d="M10 12h10"/><path d="M7 17.5h13"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.6 12 4l8 6.6"/><path d="M6 9.2V19a1 1 0 0 0 1 1h3.6v-5.2h2.8V20H17a1 1 0 0 0 1-1V9.2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10"/><path d="M17 7 7 17"/></symbol>
 </svg>
+
+<!-- ============ タブ（開いているノート） ============ -->
+<nav id="tabbar" class="tabbar" hidden aria-label="開いているノート">
+  <button id="tab-home" class="tab tab-home" type="button" role="tab" title="ノート一覧"><svg class="ic tab-ic"><use href="#i-home"/></svg><span class="tab-title">一覧</span></button>
+  <div id="tab-list" class="tab-list" role="tablist"></div>
+</nav>
 
 
 <!-- ============ スタート画面（データフォルダの選択） ============ -->
@@ -276,6 +284,7 @@
 <script src="js/library.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/pages.js"></script>
+<script src="js/tabs.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
