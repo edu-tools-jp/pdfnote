@@ -9,7 +9,7 @@ PN.app = (function () {
   //    食い違うと「表示中のファイルが古いようです」の案内が出る（それが食い違い検知のしくみ）。
   //    値は「その日の日付＋枝番」＝ 20260916a（同じ日に2回目なら 20260916b）。
   //    ★前回の日付を使い回さないこと。この日付をそのまま「いつの更新か」として見せている。
-  const APP_VERSION = '20260916a';
+  const APP_VERSION = '20261002a';
 
   /* 更新内容は release-notes.json に置く（サーバ上の最新をそのつど読む）。
      公開のたびに、いちばん上へ今回の版の項目を足すこと。 */
@@ -19,6 +19,7 @@ PN.app = (function () {
   function showOnly(id) {
     ['#screen-start', '#screen-library', '#screen-editor'].forEach(s => { $(s).hidden = (s !== id); });
     const pg = $('#screen-pages'); if (pg) pg.hidden = true;   // ページ一覧オーバーレイは常に閉じる
+    if (PN.tabs) PN.tabs.render();                              // 最初の画面ではタブを出さない
   }
 
   async function boot() {
@@ -30,6 +31,7 @@ PN.app = (function () {
     PN.library.init();
     PN.editor.init();
     PN.pages.init();
+    PN.tabs.init();
     bindStart();
     bindFileInput();
     showBuildStamp();
@@ -268,17 +270,12 @@ PN.app = (function () {
 
   /* ---- 画面遷移 ---- */
   function showLibrary() { showOnly('#screen-library'); PN.library.show(); }
+  function showEditorScreen() { showOnly('#screen-editor'); }
 
-  async function openEditor(nb, pickAfter) {
-    showOnly('#screen-editor');
-    await PN.editor.open(nb);
-    if (pickAfter) PN.editor.addPageDialog();   // 新しいノートは、何を入れるかから選ばせる
-  }
-
-  async function backToLibrary() {
-    await PN.editor.close();
-    showLibrary();
-  }
+  /* 開く・戻るは、タブ（js/tabs.js）を通す。
+     一覧に戻ってもタブは残り、押せばまたそのノートの続きから見られる */
+  async function openEditor(nb, pickAfter) { await PN.tabs.openNotebook(nb, pickAfter); }
+  async function backToLibrary() { await PN.tabs.goHome(); }
 
   const PICK_ACCEPT = {
     image: 'image/png,image/jpeg,image/webp',
@@ -294,7 +291,7 @@ PN.app = (function () {
     inp.click();
   }
 
-  return { boot, showLibrary, openEditor, backToLibrary, pickFilesForCurrentNotebook, pickImageForPage };
+  return { boot, showLibrary, showEditorScreen, openEditor, backToLibrary, pickFilesForCurrentNotebook, pickImageForPage };
 })();
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', PN.app.boot);

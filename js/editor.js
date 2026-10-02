@@ -325,8 +325,14 @@ PN.editor = (function () {
   function updateRouting() { pageViews.forEach(updatePVRouting); }
 
   /* ---------- ノートを開く / 閉じる ---------- */
-  async function open(notebook) {
-    nb = notebook; currentIdx = 0; zoom = DEFAULT_ZOOM;
+  /* ノートを開く。
+     opts.view … タブを切り替えて戻ってきたときの表示（倍率・スクロール位置）。
+                 渡されたらその位置に戻し、無ければ前回のページから始める。
+     opts.keepTool … タブを切り替えたときは、持っている道具をそのまま使い続ける */
+  async function open(notebook, opts) {
+    opts = opts || {};
+    const view = opts.view || null;
+    nb = notebook; currentIdx = 0; zoom = view ? view.zoom : DEFAULT_ZOOM;
     undoStack = []; redoStack = []; dirty = false; structureDirty = false; viewDirty = false;
     pdfCache = {}; imgCache = {}; imgUrls.forEach(u => URL.revokeObjectURL(u)); imgUrls = [];
     // 全画面状態はリセット（レイアウトのみ）
@@ -334,15 +340,23 @@ PN.editor = (function () {
     Object.keys(objUrls).forEach(k => delete objUrls[k]);
     immersive = false; ed.classList.remove('immersive'); elExit.hidden = true;
     $('#ed-title').textContent = nb.title;
-    setTool('pen');   // 既定ではペンだけで書くので、指で誤って線を引くことはない
+    // 既定ではペンだけで書くので、指で誤って線を引くことはない。
+    // タブの切り替えでは、いま持っている道具をそのまま渡す
+    setTool(opts.keepTool ? tool : 'pen');
     computeBase();
     if (nb.pages.length) {
       elNoPages.hidden = true; elScroller.style.display = '';
       buildPages();
-      const restored = restoreLastPage();   // 前回開いていたページの位置から表示する
-      renderVisible();
-      // 復元したときは、その位置で確定（スクロール反映待ちで1ページ目に戻らないように）
-      if (restored) refreshPageUI(); else updateCurrent();
+      if (view) {
+        // タブで戻ってきた：離れたときと同じ場所をそのまま見せる
+        elScroller.scrollLeft = view.sl; elScroller.scrollTop = view.st;
+        renderVisible(); updateCurrent();
+      } else {
+        const restored = restoreLastPage();   // 前回開いていたページの位置から表示する
+        renderVisible();
+        // 復元したときは、その位置で確定（スクロール反映待ちで1ページ目に戻らないように）
+        if (restored) refreshPageUI(); else updateCurrent();
+      }
     }
     else showNoPages();
     setSaveState('saved');
@@ -362,6 +376,13 @@ PN.editor = (function () {
   }
   function showNoPages() { elNoPages.hidden = false; elScroller.style.display = 'none'; elPages.innerHTML = ''; pageViews = []; }
   async function flushSave() { if (dirty || viewDirty) await saveNow(); }
+  /* いま開いているノートの表示。タブを離れるときに覚えておき、戻ったら同じ場所を見せる */
+  function getView() {
+    if (!nb) return null;
+    return { zoom, sl: elScroller.scrollLeft, st: elScroller.scrollTop };
+  }
+  const currentId = () => (nb ? nb.id : null);
+
   async function close() {
     stopGlide();
     if (nb && nb.pages.length) pageViews.forEach(pv => dropEmptyTexts(pv));   // 空の箱は残さない
@@ -2600,7 +2621,7 @@ PN.editor = (function () {
   function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
   return {
-    init, open, close, flushSave, addFiles, addPageDialog, placeImage: placeImageOnPage,
+    init, open, close, getView, currentId, flushSave, addFiles, addPageDialog, placeImage: placeImageOnPage,
     getPages, getCurrentIndex, gotoPageId, composePage,
     reorderPages, deletePagesByIds, duplicatePagesByIds, exportPagesToPdf
   };

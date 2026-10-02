@@ -16,7 +16,11 @@ PN.library = (function () {
   }
   function show() { render(); }
 
-  function render() { buildPath(); renderList(); }
+  function render() {
+    buildPath(); renderList();
+    // 消したノートのタブを外し、名前を変えたノートのタブを新しい名前にする
+    if (PN.tabs) PN.tabs.sync();
+  }
 
   /* ---- 現在地（ホーム › 親 › 子 …） ---- */
   function buildPath() {
