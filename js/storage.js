@@ -207,15 +207,27 @@ PN.storage = (function () {
     }
     const f = index.folders.find(x => x.id === id);
     if (!f) return;
+    if ((f.parent || null) !== parent) delete f.order;   // 移った先では先頭に出す
     f.parent = parent;
     await saveIndex();
   }
+  /* 一覧での並び順を保存する。並べ替えたあとの並びどおりに 0,1,2,… を振る。
+     並び順（order）を持たないもの＝まだ並べ替えていないもの・新しく足したもの
+     は、一覧のその段の先頭に、これまでどおりの順（フォルダは名前順、ノートは
+     更新の新しい順）で並ぶ。 */
+  async function setOrder(kind, ids) {
+    const list = kind === 'folder' ? index.folders : index.notebooks;
+    ids.forEach((id, i) => { const e = list.find(x => x.id === id); if (e) e.order = i; });
+    await saveIndex();
+  }
+
   /* フォルダ削除：中のサブフォルダ・ノートは「削除するフォルダの親」に引き上げる */
   async function deleteFolder(id) {
     const f = index.folders.find(x => x.id === id);
     const newParent = f ? (f.parent || null) : null;
-    index.folders.forEach(x => { if (x.parent === id) x.parent = newParent; });
-    index.notebooks.forEach(n => { if (n.folder === id) n.folder = newParent; });
+    // 引き上げたものは、引き上げ先の先頭に出す
+    index.folders.forEach(x => { if (x.parent === id) { x.parent = newParent; delete x.order; } });
+    index.notebooks.forEach(n => { if (n.folder === id) { n.folder = newParent; delete n.order; } });
     index.folders = index.folders.filter(x => x.id !== id);
     await saveIndex();
   }
@@ -243,6 +255,7 @@ PN.storage = (function () {
     await writeJSON(await getDir(['notebooks', nb.id], true), 'notebook.json', nb);
     const e = entryOf(nb.id);
     if (e) {
+      if ((e.folder || null) !== (nb.folder || null)) delete e.order;   // 別のフォルダへ移ったら、移った先の先頭に
       e.title = nb.title;
       e.grade = nb.grade || ''; e.unit = nb.unit || '';
       e.folder = nb.folder || null;
@@ -347,7 +360,7 @@ PN.storage = (function () {
     tryRestore, usePrevious, pickFolder,
     getIndex, loadIndex, saveIndex, entryOf,
     createFolder, renameFolder, setFolderColor, moveFolder, deleteFolder,
-    createNotebook, getNotebook, saveNotebook, updateMeta, deleteNotebook, copyNotebook,
+    createNotebook, getNotebook, saveNotebook, updateMeta, deleteNotebook, copyNotebook, setOrder,
     addAsset, readAsset, saveThumb, readThumb, rootName
   };
 })();
