@@ -77,6 +77,10 @@ PN.editor = (function () {
   /* ピンチ・全画面 */
   const ptrs = new Map();
   let one = null, two = null, suppressDraw = false, lastPinchEnd = 0;
+  const PINCH_START = 16;   // 2本指の間隔がこれだけ変わったら拡大・縮小を始める（px）
+  const PINCH_SETTLE_MS = 300;   // ピンチを終えてから、ページをくっきり描き直すまで（続けてピンチするときに重くしない）
+  let bgTimer = null;
+  let elExtent = null;      // ピンチ中、スクロールできる範囲を押さえておく透明な箱
   let immersive = false;
 
   /* 書き込みはタッチペンだけ、というのが既定。
@@ -90,17 +94,24 @@ PN.editor = (function () {
 
   /* 手のひら対策（パームリジェクション）。
      タッチペンで書くとき、手の側面が画面に触れて
-     ノートが大きくスクロールしてしまうのを防ぐ。
+     ノートがずれてしまうのを防ぐ。
+     ページのまわりの余白やページの間に触れた手も、同じように見分ける。
      手のひらかどうかは、次の手がかりで見分ける。
        ・ペンが触れている、またはすぐ近くにある（アクティブペンは
          近づいた時点で pointermove が 'pen' で届く）
-       ・接地面が指先よりずっと大きい（機種によっては届かないので補助）
+       ・接地面が指先よりずっと大きい（触れたあとで広がってきた場合も）
+       ・3か所以上が同時に触れている
+     指でノートを動かしている途中で手のひらだとわかったら、
+     動いてしまったぶんを元に戻す。
      どうしても合わない機種のために、設定で切れるようにしてある。 */
   const PALM_KEY = 'pdfnote.palmReject';
   let palmReject = true;
-  const PEN_GUARD_MS = 700;      // ペンを検知したあと、指を受け付けない時間
-  const PALM_UNDO_MS = 1200;     // 指が動かしたスクロールを取り消せる時間
-  const PALM_SIZE = 60;          // 接地面がこれより大きければ手のひら（CSSピクセル）
+  const PEN_GUARD_MS = 1000;     // ペンを検知したあと、指を受け付けない時間
+  const PALM_UNDO_MS = 1500;     // 触れてからこの時間までに動いたぶんは、手のひらとわかったら戻す
+  const PALM_DRIFT = 120;        // 動いた量がこれ以下なら、時間がたっていても戻す（手が乗ったときのずれ）
+  const PALM_SIZE = 60;          // 触れたときの接地面がこれより大きければ手のひら（CSSピクセル）
+  const PALM_GROW_SIZE = 80;     // 動かしている途中なら、ここまで広がったら手のひら（指先を強く押しつけても届かない大きさ）
+  const PEN_STUCK_MS = 5000;     // ペンが離れた知らせを取りこぼしても、指が使えなくならないように
   let penDown = 0, lastPenAt = 0, lastPalmAt = 0;
 
   /* DOM */
@@ -110,6 +121,8 @@ PN.editor = (function () {
     ed = $('#screen-editor');
     elStage = $('#ed-stage'); elScroller = $('#ed-scroller'); elPages = $('#ed-pages');
     elNoPages = $('#ed-nopages'); elExit = $('#ed-imm-exit');
+    elExtent = document.createElement('div'); elExtent.className = 'ed-extent';
+    elScroller.appendChild(elExtent);
 
     buildSwatches();
     buildTextControls();
@@ -385,6 +398,9 @@ PN.editor = (function () {
 
   async function close() {
     stopGlide();
+    clearTimeout(bgTimer); bgTimer = null;
+    if (two && two.zooming) endZoomPreview();
+    one = null; two = null; ptrs.clear();
     if (nb && nb.pages.length) pageViews.forEach(pv => dropEmptyTexts(pv));   // 空の箱は残さない
     await flushSave();
     if (immersive) { ed.classList.remove('immersive'); elExit.hidden = true; immersive = false; }
@@ -429,11 +445,16 @@ PN.editor = (function () {
   }
   function mkCanvas(cls) { const c = document.createElement('canvas'); c.className = cls; return c; }
 
-  function layoutPV(pv) {
-    const MAX = maxCanvasDim();
+  /* ページの大きさだけを合わせる（キャンバスの中身には触れないので軽い） */
+  function sizePV(pv) {
     const contentW = baseContentW * zoom;
     pv.scale = contentW / pv.baseW; pv.cssW = contentW; pv.cssH = pv.baseH * pv.scale;
     pv.el.style.width = pv.cssW + 'px'; pv.el.style.height = pv.cssH + 'px';
+    [pv.bg, pv.ink, pv.live].forEach(c => { c.style.width = pv.cssW + 'px'; c.style.height = pv.cssH + 'px'; });
+  }
+  function layoutPV(pv) {
+    sizePV(pv);
+    const MAX = maxCanvasDim();
     // ink/live のビットマップは MAX(=最大4096) を超えないよう解像度を落とす。表示サイズ(style)は
     // cssW/H のままなので、テクスチャをブラウザが拡大表示する（拡大は効くが白くならない）。
     const r = dprv();
@@ -441,22 +462,38 @@ PN.editor = (function () {
     [pv.ink, pv.live].forEach(c => {
       c.width = Math.max(1, Math.round(pv.cssW * safeR));
       c.height = Math.max(1, Math.round(pv.cssH * safeR));
-      c.style.width = pv.cssW + 'px'; c.style.height = pv.cssH + 'px';
     });
     pv.inkctx.setTransform(safeR, 0, 0, safeR, 0, 0); pv.livectx.setTransform(safeR, 0, 0, safeR, 0, 0);
-    pv.bg.style.width = pv.cssW + 'px'; pv.bg.style.height = pv.cssH + 'px';
   }
 
-  function relayoutAll() {
+  /* 大きさが変わったときの組み直し。
+     adjust … 大きさを合わせたあと、描き直す前に呼ぶ（見ていた所へスクロールを戻すため）。
+     描き直すのは画面の近くのページだけ。遠いページのキャンバスは手放しておき、
+     近づいたときに新しい大きさで描く（ページが多いノートでも、拡大・縮小が重くならない）。
+     settle … ページの絵をくっきり描き直すのを少し待つ（ピンチのあと） */
+  function relayoutAll(adjust, settle) {
     if (!pageViews.length) return;
     computeBase();
+    pageViews.forEach(sizePV);
+    if (adjust) adjust();
+    const sr = elScroller.getBoundingClientRect(), margin = sr.height;
     pageViews.forEach(pv => {
-      layoutPV(pv); pv.rendered = false;
-      // 書き込み（線・目かくし）はここで同期的に描き直す。
-      // 背景の再描画（非同期）を待つと、その間だけ線が消えてしまうため。
-      if (!pv.freed) { renderInk(pv); renderMasks(pv); renderTexts(pv); renderImages(pv); }
+      const r = pv.el.getBoundingClientRect();
+      if (r.bottom > sr.top - margin && r.top < sr.bottom + margin) {
+        layoutPV(pv); pv.freed = false; pv.rendered = false;
+        // 書き込み（線・目かくし）はここで同期的に描き直す。
+        // 背景の再描画（非同期）を待つと、その間だけ線が消えてしまうため。
+        renderInk(pv); renderMasks(pv); renderTexts(pv); renderImages(pv);
+      } else {
+        freePageBg(pv);
+      }
     });
-    renderVisible(); updateCurrent();
+    if (settle) renderVisibleSoon(); else renderVisible();
+    updateCurrent();
+  }
+  function renderVisibleSoon() {
+    clearTimeout(bgTimer);
+    bgTimer = setTimeout(() => { bgTimer = null; if (!(two && two.zooming)) renderVisible(); }, PINCH_SETTLE_MS);
   }
 
   /* 画面に入っているページだけ描画（遅延レンダリング） */
@@ -480,8 +517,18 @@ PN.editor = (function () {
     if (pv.renderTask) { try { pv.renderTask.cancel(); } catch (e) {} pv.renderTask = null; }
     pv.renderToken++;
     [pv.bg, pv.ink, pv.live].forEach(c => { c.width = 1; c.height = 1; });
-    pv.rendered = false;
+    pv.rendered = false; pv.pending = false;
     pv.freed = true;
+  }
+
+  /* 描いている途中のページを止める（ピンチの間は指の動きを優先する）。
+     元の絵はそのまま残り、指を離したあとで新しい大きさで描き直す */
+  function pauseRendering() {
+    pageViews.forEach(pv => {
+      if (!pv.renderTask && !pv.pending) return;
+      if (pv.renderTask) { try { pv.renderTask.cancel(); } catch (e) {} pv.renderTask = null; }
+      pv.renderToken++; pv.rendered = false; pv.pending = false;
+    });
   }
 
   async function renderPageBg(pv) {
@@ -489,7 +536,7 @@ PN.editor = (function () {
     if (pv.renderTask) { try { pv.renderTask.cancel(); } catch (e) {} pv.renderTask = null; }
     // 解放されていたキャンバスを再確保
     if (pv.freed) { layoutPV(pv); pv.freed = false; }
-    const token = ++pv.renderToken; pv.rendered = true;
+    const token = ++pv.renderToken; pv.rendered = true; pv.pending = true;
     const p = nb.pages[pv.idx];
     const MAX_DIM = maxCanvasDim();   // ビットマップ寸法の安全上限（内蔵GPU対策）
     let ok = false;
@@ -542,6 +589,7 @@ PN.editor = (function () {
       console.error('ページ描画エラー', e);
     }
     if (token !== pv.renderToken) return;
+    pv.pending = false;
     if (!ok) { pv.rendered = false; return; }   // 失敗時は再試行できるよう戻す
     renderInk(pv); renderMasks(pv); renderTexts(pv); renderImages(pv);
   }
@@ -1977,11 +2025,14 @@ PN.editor = (function () {
      画面の中央にあるページと、その中のどこを見ているかを覚えておき、
      大きさを変えたあとで同じ点を画面の中央へ戻す。
      ページの間のすき間は拡大しても 16px のままなので、
-     全体からの割合ではなく「ページの中の割合」で覚える。 */
-  function viewAnchor() {
+     全体からの割合ではなく「ページの中の割合」で覚える。
+     cx, cy を渡すと、画面の中央のかわりにその点（ピンチの指の間）で覚える。 */
+  function viewAnchor(cx, cy) {
     if (!pageViews.length) return null;
-    const sr = elScroller.getBoundingClientRect();
-    const cx = sr.left + sr.width / 2, cy = sr.top + sr.height / 2;
+    if (cx == null) {
+      const sr = elScroller.getBoundingClientRect();
+      cx = sr.left + sr.width / 2; cy = sr.top + sr.height / 2;
+    }
     let pv = null, bestD = Infinity;
     pageViews.forEach(v => {
       const r = v.el.getBoundingClientRect();
@@ -1999,19 +2050,26 @@ PN.editor = (function () {
     const r = a.pv.el.getBoundingClientRect();
     elScroller.scrollLeft += (r.left + a.fx * r.width) - a.cx;
     elScroller.scrollTop += (r.top + a.fy * r.height) - a.cy;
-    // 位置を直したあとの見え方に合わせて、描画とページ番号を取り直す
-    renderVisible(); updateCurrent();
   }
+  const clampZoom = (z) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
   function setZoom(z) {
     stopGlide(); releaseViewHold();
-    const nz = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+    const nz = clampZoom(z);
     const a = (nz !== zoom) ? viewAnchor() : null;
-    zoom = nz; relayoutAll(); applyViewAnchor(a);
+    // 位置を直してから描き直すので、見ているページから先に描ける
+    zoom = nz; relayoutAll(() => applyViewAnchor(a));
   }
 
   /* ---------- ページ移動・現在ページ ---------- */
   function goPage(i) { if (!nb || i < 0 || i >= nb.pages.length || !pageViews[i]) return; stopGlide(); pageViews[i].el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-  function onScroll() { if (scrollRAF) return; scrollRAF = requestAnimationFrame(() => { scrollRAF = null; renderVisible(); updateCurrent(); }); }
+  function onScroll() {
+    if (scrollRAF) return;
+    scrollRAF = requestAnimationFrame(() => {
+      scrollRAF = null;
+      if (two && two.zooming) return;     // ピンチの途中は描かない（指を離したら描き直す）
+      renderVisible(); updateCurrent();
+    });
+  }
   function updateCurrent() {
     if (!pageViews.length) return;
     const sr = elScroller.getBoundingClientRect(), cy = sr.top + sr.height / 2;
@@ -2135,41 +2193,60 @@ PN.editor = (function () {
     document.addEventListener('pointermove', onPenSignal, true);
     document.addEventListener('pointerup', onPenSignal, true);
     document.addEventListener('pointercancel', onPenSignal, true);
-    elPages.addEventListener('pointerdown', onTouchDown, true);
+    // ページの上だけでなく、まわりの余白やページの間に触れた指もここで受け持つ。
+    // ブラウザに任せると、手のひら対策が効かず、ピンチでは画面全体が拡大されてしまう
+    elScroller.addEventListener('pointerdown', onTouchDown, true);
     document.addEventListener('pointermove', onTouchMove);
     document.addEventListener('pointerup', onTouchUp);
     document.addEventListener('pointercancel', onTouchUp);
     document.addEventListener('pointerup', onTextLayerUp);
     document.addEventListener('pointercancel', () => { pendingText = null; });
   }
-  /* ペンが触れた／近づいた。時刻を覚えておく */
+  /* ペンが触れた／近づいた。時刻を覚えておく。
+     そのとき指がノートを動かしている途中なら、それは手のひら
+     （書きながら指で押さえ続ける人はいない）。動いたぶんを戻す */
   function onPenSignal(e) {
     if (e.pointerType !== 'pen') return;
     lastPenAt = nowMs();
-    if (e.type === 'pointerdown') { penDown++; onPenLanded(); }
-    else if (e.type === 'pointerup' || e.type === 'pointercancel') penDown = Math.max(0, penDown - 1);
-  }
-
-  /* ペンが触れた時点で指がノートを動かしていて、その指がまだ画面に
-     残っているなら、それは手のひらだった（書きながら指で押さえ続ける人はいない）。
-     動いてしまったぶんを元に戻す。 */
-  function onPenLanded() {
+    if (e.type === 'pointerdown') penDown++;
+    else if (e.type === 'pointerup' || e.type === 'pointercancel') { penDown = Math.max(0, penDown - 1); return; }
     if (!palmReject) return;
     stopGlide();
-    if (!one || !ptrs.has(one.id) || nowMs() - one.startT > PALM_UNDO_MS) return;
-    elScroller.scrollLeft = one.startSL;
-    elScroller.scrollTop = one.startST;
-    lastPalmAt = nowMs();
-    one = null;
+    if (one || two) rejectHand();
   }
 
+  /* いま触れている指は手のひらだった。ノートを元の位置に戻し、その指はもう使わない。
+     戻すのは、触れてすぐに動いたぶんか、わずかなずれだけ
+     （しばらく指で大きく動かしていたなら、それは自分で動かしたもの） */
+  function rejectHand() {
+    stopGlide();
+    const g = one || two;
+    if (two && two.zooming) endZoomPreview();    // 大きさは変えない
+    if (g && (nowMs() - g.startT <= PALM_UNDO_MS || g.moved <= PALM_DRIFT)) {
+      elScroller.scrollLeft = g.startSL;
+      elScroller.scrollTop = g.startST;
+    }
+    const wasZooming = !!(two && two.zooming);
+    one = null; two = null; ptrs.clear(); pendingText = null;
+    suppressDraw = false;                        // すぐにペンで書けるように
+    lastPalmAt = nowMs();
+    if (wasZooming) { renderVisible(); updateCurrent(); }   // 止めておいたページを描き直す
+  }
+
+  /* 接地面の大きさ（届かない機種では 0 か 1） */
+  const contactSize = (e) => Math.max(e.width || 0, e.height || 0);
   /* 手のひららしい接触か */
   function isPalmLike(e) {
     if (!palmReject) return false;
-    if (penDown > 0) return true;                        // ペンが触れている
-    if (nowMs() - lastPenAt < PEN_GUARD_MS) return true; // ペンがすぐそこにある
-    const sz = Math.max(e.width || 0, e.height || 0);
-    return sz > 1 && sz > PALM_SIZE;                     // 接地面が指先より大きい
+    if (penDown > 0 && nowMs() - lastPenAt < PEN_STUCK_MS) return true;   // ペンが触れている
+    if (nowMs() - lastPenAt < PEN_GUARD_MS) return true;                  // ペンがすぐそこにある
+    return contactSize(e) > PALM_SIZE;                                    // 接地面が指先よりずっと大きい
+  }
+  /* スクロールバーの上か（つまみを動かすのはブラウザに任せる） */
+  function onScrollbar(e) {
+    const r = elScroller.getBoundingClientRect();
+    return e.clientX >= r.left + elScroller.clientLeft + elScroller.clientWidth ||
+           e.clientY >= r.top + elScroller.clientTop + elScroller.clientHeight;
   }
 
   function onTouchDown(e) {
@@ -2177,18 +2254,25 @@ PN.editor = (function () {
     if (isPalmLike(e)) { lastPalmAt = nowMs(); return; }   // 手のひらは無かったことにする
     stopGlide();                       // 動いている最中に触れたら、その場で止める
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (ptrs.size >= 2) { one = null; pendingText = null; if (!two) startTwo(); return; }
+    // 3か所以上が同時に触れるのは、手が乗ったとき
+    if (ptrs.size >= 3 && palmReject) { rejectHand(); return; }
+    if (ptrs.size >= 2) { const prev = one; one = null; pendingText = null; if (!two) startTwo(prev); return; }
     /* 指でつかんで動かせるもの（画像・投げ縄の選択枠・テキストボックス）に
        触れたときは、ノートを一緒に動かさない。
        画像や投げ縄で選んでいる間も同じく止めておき、
-       何もない所を1回タップすれば選択が外れて、また指でスクロールできる。 */
-    if (ptrs.size === 1 && isViewTool() && !selImg && !lassoSel && !onGrabbable(e)) {
+       何もない所を1回タップすれば選択が外れて、また指でスクロールできる。
+       ページの外（まわりの余白・ページの間）は、どの道具でも指でスクロールできる。 */
+    const offPage = !(e.target && e.target.closest && e.target.closest('.pageview'));
+    if (ptrs.size === 1 && !onGrabbable(e) && !onScrollbar(e) &&
+        (offPage || (isViewTool() && !selImg && !lassoSel))) {
       one = { id: e.pointerId, lastX: e.clientX, lastY: e.clientY, moved: 0, vx: 0, vy: 0, lastT: nowMs(),
               startT: nowMs(), startSL: elScroller.scrollLeft, startST: elScroller.scrollTop };
     }
   }
   function onTouchMove(e) {
     if (!ptrs.has(e.pointerId)) return;
+    // 触れたあとで接地面が広がってきた：手のひらが乗ってきた
+    if (palmReject && contactSize(e) > PALM_GROW_SIZE) { rejectHand(); return; }
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (two && ptrs.size >= 2) { releaseViewHold(); moveTwo(); return; }
     if (one && e.pointerId === one.id) {
@@ -2211,48 +2295,75 @@ PN.editor = (function () {
     }
     if (ptrs.size === 0) suppressDraw = false;
   }
-  function startTwo() {
+
+  /* 2本指。prev … それまで1本指で動かしていたなら、その記録（手のひらだったときに戻すため） */
+  function startTwo(prev) {
     if (!nb || !pageViews.length) return;
     suppressDraw = true; cancelGesture(); one = null;
     const [a, b] = [...ptrs.values()];
-    two = { startDist: dist(a, b) || 1, lastMid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, zooming: false, z0: zoom, zoomBaseDist: 1, lastScale: 1, fx: 0, fy: 0, vx: 0, vy: 0, lastT: nowMs() };
+    const t = nowMs();
+    two = { startDist: dist(a, b) || 1, lastMid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, lastDist: dist(a, b),
+            zooming: false, z0: zoom, zoomBaseDist: 1, lastScale: 1, origin: null, vx: 0, vy: 0, lastT: t,
+            startT: prev ? prev.startT : t, moved: prev ? prev.moved : 0,
+            startSL: prev ? prev.startSL : elScroller.scrollLeft, startST: prev ? prev.startST : elScroller.scrollTop };
   }
   function moveTwo() {
     const [a, b] = [...ptrs.values()];
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     const d = dist(a, b);
-    // 2本指の中点移動 → なめらかにスクロール
     const mdx = mid.x - two.lastMid.x, mdy = mid.y - two.lastMid.y;
-    if (!two.zooming) trackVelocity(two, mdx, mdy, nowMs());   // 拡大中は勢いを記録しない
+    two.moved += Math.abs(mdx) + Math.abs(mdy) + Math.abs(d - two.lastDist);
+    two.lastMid = mid; two.lastDist = d;
+    if (two.zooming) {
+      two.lastScale = clampZoom(two.z0 * d / two.zoomBaseDist) / two.z0;
+      applyZoomPreview(mid);
+      return;
+    }
+    // 2本指の中点移動 → なめらかにスクロール
+    trackVelocity(two, mdx, mdy, nowMs());
     elScroller.scrollLeft -= mdx;
     elScroller.scrollTop -= mdy;
-    two.lastMid = mid;
-    // 指の間隔が一定以上（26px）変わったらズーム作動。小さな動きでは反応しない
-    if (!two.zooming && Math.abs(d - two.startDist) > 26) {
-      two.zooming = true; two.zoomBaseDist = d || 1; two.z0 = zoom;
-      const rect = elPages.getBoundingClientRect();
-      const ox = mid.x - rect.left, oy = mid.y - rect.top;
-      elPages.style.transformOrigin = ox + 'px ' + oy + 'px';
-      two.fx = rect.width ? ox / rect.width : 0; two.fy = rect.height ? oy / rect.height : 0;
-    }
-    if (two.zooming) {
-      const fz = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, two.z0 * d / two.zoomBaseDist));
-      two.lastScale = fz / two.z0;
-      elPages.style.transform = 'scale(' + two.lastScale + ')';
-    }
+    // 指の間隔が一定以上変わったら拡大・縮小を始める。小さな動きでは反応しない
+    if (Math.abs(d - two.startDist) > PINCH_START) startZoomPreview(mid, d);
+  }
+
+  /* ピンチの間は、ページ全体を絵として拡大・縮小して見せるだけにする（とても軽い）。
+     スクロールもページの描き直しもせず、指を離したときに一度だけ新しい大きさで組み直す。
+     指の間にあった所が、ずっと指の間についてくるように動かす。 */
+  function startZoomPreview(mid, d) {
+    two.zooming = true; two.zoomBaseDist = d || 1; two.z0 = zoom; two.lastScale = 1;
+    clearTimeout(bgTimer); bgTimer = null;
+    pauseRendering();
+    // 縮めている間にスクロールできる範囲が縮むと、ブラウザが位置を詰めてずれてしまうので押さえておく
+    elExtent.style.width = elScroller.scrollWidth + 'px';
+    elExtent.style.height = elScroller.scrollHeight + 'px';
+    const r = elPages.getBoundingClientRect();
+    two.origin = { left: r.left, top: r.top, px: mid.x - r.left, py: mid.y - r.top };
+    elPages.style.willChange = 'transform';
+  }
+  function applyZoomPreview(mid) {
+    const s = two.lastScale, o = two.origin;
+    const tx = mid.x - o.left - s * o.px, ty = mid.y - o.top - s * o.py;
+    elPages.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + s + ')';
+  }
+  function endZoomPreview() {
+    elPages.style.transform = ''; elPages.style.willChange = '';
+    elExtent.style.width = '0'; elExtent.style.height = '0';
   }
   function endTwo() {
     const t = two; two = null; lastPinchEnd = Date.now();
-    // 拡大していない（＝2本指スクロールだった）なら、離した勢いで滑らせる
-    if (!t.zooming && nowMs() - t.lastT < 120) startGlide(t.vx, t.vy);
-    if (t.zooming) {
-      elPages.style.transform = ''; elPages.style.transformOrigin = '';
-      zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, t.z0 * t.lastScale));
-      relayoutAll();
-      const rect = elPages.getBoundingClientRect();
-      elScroller.scrollLeft += (rect.left + t.fx * rect.width) - t.lastMid.x;
-      elScroller.scrollTop += (rect.top + t.fy * rect.height) - t.lastMid.y;
+    if (!t.zooming) {
+      // 拡大していない（＝2本指スクロールだった）なら、離した勢いで滑らせる
+      if (nowMs() - t.lastT < 120) startGlide(t.vx, t.vy);
+      return;
     }
+    // 指の間に見えていた所を覚えてから、新しい大きさで組み直してそこへ戻す
+    const a = viewAnchor(t.lastMid.x, t.lastMid.y);
+    endZoomPreview();
+    const nz = clampZoom(t.z0 * t.lastScale);
+    if (Math.abs(nz - zoom) < 1e-4) { applyViewAnchor(a); renderVisibleSoon(); updateCurrent(); return; }
+    zoom = nz;
+    relayoutAll(() => applyViewAnchor(a), true);
   }
 
   /* ---------- ページ追加 ---------- */
