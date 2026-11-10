@@ -289,7 +289,9 @@ PN.editor = (function () {
   };
 
   function bindToolbar() {
-    document.querySelectorAll('.tool-btn').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+    // 「画像」ボタン（data-tool なし）はメニューを開くだけ。押しただけで道具が外れないように、
+    // 道具を持つボタンにだけつなぐ（画像を置いたあとで「画像」の道具になる）
+    document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
     $('#ed-back').addEventListener('click', () => PN.app.backToLibrary());
     $('#ed-undo').addEventListener('click', undo);
     $('#ed-redo').addEventListener('click', redo);
@@ -311,7 +313,8 @@ PN.editor = (function () {
 
   function setTool(t) {
     tool = t;
-    document.querySelectorAll('.tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+    document.querySelectorAll('.tool-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.tool ? b.dataset.tool === t : (t === 'image' && b.id === 'ed-image')));
     const isPen = isPenLike(t);
     $('#grp-color').hidden = !isPen;
     $('#grp-width').hidden = !isPen;
