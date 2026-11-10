@@ -354,7 +354,9 @@ body.sorting, body.sorting *{cursor:grabbing !important;}
 
 /* ---- ステージ（ページ表示領域） ---- */
 .ed-stage{position:relative; flex:1; min-height:0; background:#0c0e14;}
-.ed-scroller{position:absolute; inset:0; overflow:auto; display:flex; padding:20px;}
+.ed-scroller{position:absolute; inset:0; overflow:auto; display:flex; padding:20px;
+  touch-action:none;   /* 余白やページの間に触れた指も、こちらで受け持つ（手のひら対策・ピンチ） */}
+.ed-extent{position:absolute; left:0; top:0; width:0; height:0; visibility:hidden; pointer-events:none;}
 .ed-pages{display:flex; flex-direction:column; align-items:center; gap:16px; width:max-content; margin:auto; transform-origin:0 0;}
 .pageview{position:relative; flex:0 0 auto; box-shadow:0 6px 30px #000a; background:#fff;}
 .pageview .layer{position:absolute; top:0; left:0;}
