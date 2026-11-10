@@ -82,6 +82,10 @@ PN.editor = (function () {
   let bgTimer = null;
   let elExtent = null;      // ピンチ中、スクロールできる範囲を押さえておく透明な箱
   let immersive = false;
+  /* 全画面のとき、左上にペン・ペンの色・めくり・もとにもどすを出すか（設定で切り替え。既定は出す） */
+  const IMM_BAR_KEY = 'pdfnote.immBar';
+  let immBar = true;
+  let immPalm = false;      // 左上の道具に触れたのが手のひらだった（押したことにしない）
 
   /* 書き込みはタッチペンだけ、というのが既定。
      アクティブペンは pointerType が 'pen'、指と静電式ペンは 'touch' で届く。
@@ -115,12 +119,12 @@ PN.editor = (function () {
   let penDown = 0, lastPenAt = 0, lastPalmAt = 0;
 
   /* DOM */
-  let ed, elStage, elScroller, elPages, elNoPages, elExit;
+  let ed, elStage, elScroller, elPages, elNoPages, elExit, elImmBar;
 
   function init() {
     ed = $('#screen-editor');
     elStage = $('#ed-stage'); elScroller = $('#ed-scroller'); elPages = $('#ed-pages');
-    elNoPages = $('#ed-nopages'); elExit = $('#ed-imm-exit');
+    elNoPages = $('#ed-nopages'); elExit = $('#ed-imm-exit'); elImmBar = $('#ed-imm-bar');
     elExtent = document.createElement('div'); elExtent.className = 'ed-extent';
     elScroller.appendChild(elExtent);
 
@@ -300,6 +304,7 @@ PN.editor = (function () {
     try { fingerDraw = localStorage.getItem(FINGER_DRAW_KEY) === '1'; } catch (e) {}
     try { palmReject = localStorage.getItem(PALM_KEY) !== '0'; } catch (e) {}
     try { snapShapes = localStorage.getItem(SHAPE_KEY) !== '0'; } catch (e) {}
+    try { immBar = localStorage.getItem(IMM_BAR_KEY) !== '0'; } catch (e) {}
     buildLassoControls();
     $('#ed-settings').addEventListener('click', (e) => settingsMenu(e.currentTarget));
   }
@@ -324,6 +329,7 @@ PN.editor = (function () {
     // 目かくしの×は「目かくし」のときだけ出す。道具を変えたら描き直して消す
     pageViews.forEach(pv => { renderMasks(pv); renderTexts(pv); renderImages(pv); });
     updateRouting();
+    syncImmBar();
   }
 
   /* レイヤーのポインタ受付（道具に応じて）。全画面でも通常どおり描ける */
@@ -403,7 +409,7 @@ PN.editor = (function () {
     one = null; two = null; ptrs.clear();
     if (nb && nb.pages.length) pageViews.forEach(pv => dropEmptyTexts(pv));   // 空の箱は残さない
     await flushSave();
-    if (immersive) { ed.classList.remove('immersive'); elExit.hidden = true; immersive = false; }
+    if (immersive) { ed.classList.remove('immersive'); elExit.hidden = true; immersive = false; syncImmBar(); }
     imgUrls.forEach(u => URL.revokeObjectURL(u)); imgUrls = []; pdfCache = {}; imgCache = {};
     elPages.innerHTML = ''; pageViews = []; nb = null;
   }
@@ -2109,6 +2115,45 @@ PN.editor = (function () {
   function bindImmersive() {
     $('#ed-immersive').addEventListener('click', () => immersive ? exitImmersive() : enterImmersive());
     elExit.addEventListener('click', exitImmersive);
+    // 左上の道具。書いている手が触れて、めくりや「もとにもどす」が押されてしまわないようにする
+    elImmBar.addEventListener('pointerdown', (e) => {
+      immPalm = (e.pointerType === 'touch' && palmReject && (penDown > 0 || contactSize(e) > PALM_SIZE));
+    }, true);
+    const tap = (fn) => () => { const palm = immPalm; immPalm = false; if (!palm) fn(); };
+    $('#imm-pen').addEventListener('click', tap(() => setTool('pen')));
+    $('#imm-reveal').addEventListener('click', tap(() => setTool('reveal')));
+    $('#imm-undo').addEventListener('click', tap(undo));
+    buildImmColors(tap);
+  }
+  /* 左上に出すペンの色。いまのペンの色に印をつける。
+     押すとその色のペンになる（直線のときは直線のまま色だけ変える） */
+  let drawImmColors = null;
+  function buildImmColors(tap) {
+    const host = $('#imm-colors');
+    drawImmColors = () => {
+      host.innerHTML = '';
+      COLORS.forEach((c) => {
+        const b = document.createElement('span');
+        b.className = 'color-swatch' + (color === c ? ' active' : '');
+        b.style.background = c; b.dataset.color = c; b.title = 'ペン（' + c + '）';
+        b.style.setProperty('--mark', isLightColor(c) ? '#1a1a1a' : '#ffffff');
+        b.addEventListener('click', tap(() => {
+          color = c;
+          if (tool === 'pen' || tool === 'line') { refreshPenPanels(); syncImmBar(); }
+          else setTool('pen');
+        }));
+        host.appendChild(b);
+      });
+    };
+  }
+  /* 全画面かどうか・設定・いまの道具に合わせて、左上の道具を出し入れする */
+  function syncImmBar() {
+    if (!elImmBar) return;
+    elImmBar.hidden = !(immersive && immBar);
+    if (elImmBar.hidden) return;
+    if (drawImmColors) drawImmColors();
+    $('#imm-pen').classList.toggle('active', tool === 'pen');
+    $('#imm-reveal').classList.toggle('active', tool === 'reveal');
   }
   // 全画面ボタンの見た目を切り替える（アイコンを消さずに中身だけ差し替える）
   function setImmersiveBtn(iconId, label, title) {
@@ -2123,6 +2168,7 @@ PN.editor = (function () {
     ed.classList.add('immersive');
     elExit.hidden = false;
     setImmersiveBtn('#i-exit-full', '全画面解除', '全画面を解除する');
+    syncImmBar();
     // ブラウザの全画面API（requestFullscreen）は使わない。使うと Chrome が
     // 「全画面表示を終了するには Esc キーを押します」を毎回出すため。
     // 上下のメニューはアプリ側で隠しているので、PDF は画面いっぱいに映る。
@@ -2134,6 +2180,7 @@ PN.editor = (function () {
     immersive = false;
     ed.classList.remove('immersive'); elExit.hidden = true;
     setImmersiveBtn('#i-full', '全画面', '全画面（メニューを隠してPDFを大きく映す）');
+    syncImmBar();
     updateRouting();
     setTimeout(relayoutAll, 80);
   }
@@ -2464,8 +2511,18 @@ PN.editor = (function () {
         : { label: '押さえたままで図形をきれいにする', onClick: () => setSnapShapes(true) },
       palmReject
         ? { icon: 'check', label: '手のひらが触れても反応しないようにする', onClick: () => setPalmReject(false) }
-        : { label: '手のひらが触れても反応しないようにする', onClick: () => setPalmReject(true) }
+        : { label: '手のひらが触れても反応しないようにする', onClick: () => setPalmReject(true) },
+      immBar
+        ? { icon: 'check', label: '全画面でも、左上にペン・ペンの色・めくり・もとにもどすを出す', onClick: () => setImmBar(false) }
+        : { label: '全画面でも、左上にペン・ペンの色・めくり・もとにもどすを出す', onClick: () => setImmBar(true) }
     ]);
+  }
+  function setImmBar(on) {
+    immBar = !!on;
+    try { localStorage.setItem(IMM_BAR_KEY, on ? '1' : '0'); } catch (e) {}
+    syncImmBar();
+    PN.ui.toast(on ? '全画面のとき、左上にペン・ペンの色・めくり・もとにもどすを出します。'
+                   : '全画面のときは、左上に道具を出しません（メニューをすべて隠します）。', 6000);
   }
   function setFingerDraw(on) {
     fingerDraw = !!on;

@@ -372,6 +372,25 @@ body.sorting, body.sorting *{cursor:grabbing !important;}
   padding:12px 18px; border-radius:999px; border:1px solid var(--line);
   background:#000c; color:#fff; font-size:16px;
 }
+/* 全画面中に左上に出す、よく使う道具（ペン・ペンの色・めくり・もとにもどす） */
+.imm-bar{
+  position:absolute; left:16px; top:16px; z-index:40;
+  display:flex; align-items:center; gap:8px; padding:8px 10px;
+  border-radius:16px; border:1px solid var(--line); background:#000c;
+  touch-action:none; user-select:none; -webkit-user-select:none;
+}
+.imm-bar .colors{gap:8px; padding:0 2px;}
+.imm-bar .color-swatch{width:34px; height:34px; box-shadow:0 0 0 1px #ffffff59;}   /* 黒も暗い地の上で見えるように */
+.imm-sep{width:1px; align-self:stretch; background:var(--line);}
+.imm-btn{
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  font-size:22px; line-height:1; padding:5px 8px; min-width:56px; min-height:48px;
+  border-radius:10px; border:1px solid var(--line); background:var(--panel-2); color:var(--ink);
+}
+.imm-btn small{font-size:11px; color:var(--muted);}
+.imm-btn:hover{filter:brightness(1.12);}
+.imm-btn.active{background:var(--accent); border-color:var(--accent);}
+.imm-btn.active small{color:#dbe7ff;}
 
 .mask{
   position:absolute; background:var(--mask-color,#c0392b);
